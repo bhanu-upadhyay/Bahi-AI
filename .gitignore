@@ -25,3 +25,14 @@ dist/
 
 # Logs
 *.log
+
+# Private uploaded documents
+backend/uploads/
+backend/app/uploads/
+
+# Local databases and temporary files
+*.sqlite3
+*.db
+*.tmp
+.coverage
+htmlcov/

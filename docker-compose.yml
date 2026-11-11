@@ -1,0 +1,22 @@
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: bahi_ai_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bahi_user
+      POSTGRES_PASSWORD: local_dev_password
+      POSTGRES_DB: bahi_ai
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bahi_user -d bahi_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

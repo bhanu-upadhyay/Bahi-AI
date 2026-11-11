@@ -1,0 +1,3 @@
+-- Bahi-AI Initial Seed Data
+-- Seeded via scripts/seed_database.py
+-- Includes 6 departments, 8 vendors, 6 users, 10 POs, 8 GRNs, 11 Invoices, Budgets, Approvals, Payments, Fraud Alerts, and Audit Logs

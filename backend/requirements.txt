@@ -1,0 +1,22 @@
+# Bahi-AI Backend Dependencies
+fastapi==0.128.8
+uvicorn[standard]==0.39.0
+pydantic==2.13.5
+pydantic-settings==2.11.0
+sqlalchemy==2.0.57
+alembic==1.16.5
+psycopg[binary]==3.2.13
+pwdlib[argon2]==0.2.1
+pyjwt==2.15.1
+python-dotenv==1.2.1
+python-multipart==0.0.20
+email-validator==2.3.0
+pytest==8.4.2
+httpx==0.28.1
+
+# Document and OCR Processing (for later phases)
+pillow==11.3.0
+PyMuPDF==1.26.5
+pytesseract==0.3.13
+openai==2.48.0
+
