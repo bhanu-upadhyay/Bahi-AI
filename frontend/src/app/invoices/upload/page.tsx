@@ -316,11 +316,31 @@ export default function InvoiceUploadPage() {
                 </span>
               </div>
               <div className="flex justify-between">
+                <span className="text-slate-500">GSTIN / Tax ID:</span>
+                <span className="font-mono text-slate-800">
+                  {uploadResult.extracted_data?.tax_identifier || "None Found"}
+                </span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-slate-500">Invoice Number:</span>
                 <span className="font-mono font-bold text-slate-900">
                   {uploadResult.invoice_number}
                 </span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Invoice Date:</span>
+                <span className="font-mono text-slate-800">
+                  {uploadResult.extracted_data?.invoice_date || "Not Found"}
+                </span>
+              </div>
+              {uploadResult.extracted_data?.customer_name && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Billed To (Customer):</span>
+                  <span className="font-semibold text-slate-800">
+                    {uploadResult.extracted_data.customer_name}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-slate-500">Purchase Order:</span>
                 <span className="font-mono text-slate-700">
@@ -331,26 +351,58 @@ export default function InvoiceUploadPage() {
 
             <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2 text-xs">
               <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
-                Extracted Financials
+                Extracted Financials & GST Breakdown
               </span>
               <div className="flex justify-between">
-                <span className="text-slate-500">Subtotal:</span>
+                <span className="text-slate-500">Taxable Subtotal:</span>
                 <span className="font-mono text-slate-800">
                   {formatCurrency(uploadResult.extracted_data?.subtotal)}
                 </span>
               </div>
+              {uploadResult.extracted_data?.cgst_amount && (
+                <div className="flex justify-between text-slate-600">
+                  <span>CGST:</span>
+                  <span className="font-mono">{formatCurrency(uploadResult.extracted_data.cgst_amount)}</span>
+                </div>
+              )}
+              {uploadResult.extracted_data?.sgst_amount && (
+                <div className="flex justify-between text-slate-600">
+                  <span>SGST:</span>
+                  <span className="font-mono">{formatCurrency(uploadResult.extracted_data.sgst_amount)}</span>
+                </div>
+              )}
+              {uploadResult.extracted_data?.igst_amount && (
+                <div className="flex justify-between text-slate-600">
+                  <span>IGST:</span>
+                  <span className="font-mono">{formatCurrency(uploadResult.extracted_data.igst_amount)}</span>
+                </div>
+              )}
               <div className="flex justify-between">
-                <span className="text-slate-500">Tax Amount:</span>
+                <span className="text-slate-500">Total Tax:</span>
                 <span className="font-mono text-slate-800">
                   {formatCurrency(uploadResult.extracted_data?.tax_amount)}
                 </span>
               </div>
               <div className="flex justify-between border-t border-slate-200 pt-1 font-bold">
-                <span className="text-slate-900">Total Amount:</span>
+                <span className="text-slate-900">Grand Total:</span>
                 <span className="font-mono text-emerald-700 text-sm">
                   {formatCurrency(uploadResult.extracted_data?.total_amount)}
                 </span>
               </div>
+              {uploadResult.extracted_data?.reconciliation_status && (
+                <div className="pt-1 flex items-center justify-between text-[11px]">
+                  <span className="text-slate-400">Reconciliation:</span>
+                  <span
+                    className={`font-semibold px-2 py-0.5 rounded ${
+                      uploadResult.extracted_data.reconciliation_status === "RECONCILED"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-amber-100 text-amber-800"
+                    }`}
+                  >
+                    {uploadResult.extracted_data.reconciliation_status}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 

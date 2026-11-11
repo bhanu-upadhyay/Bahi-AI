@@ -22,6 +22,7 @@ import {
   Sparkles,
   FileSearch,
   ExternalLink,
+  Calculator,
 } from "lucide-react";
 import { api } from "@/services/api";
 import { Invoice, Vendor, Department, PurchaseOrder } from "@/types";
@@ -56,10 +57,18 @@ export default function InvoiceDetailPage() {
     subtotal: "",
     tax_amount: "",
     total_amount: "",
-    currency: "USD",
+    currency: "INR",
     description: "",
     tax_identifier: "",
+    cgst_amount: "",
+    sgst_amount: "",
+    igst_amount: "",
+    customer_name: "",
+    customer_gstin: "",
   });
+
+  // Track initial extracted values to distinguish Extracted vs User-Corrected
+  const [initialExtracted, setInitialExtracted] = useState<Record<string, any>>({});
 
   const loadData = () => {
     if (invoiceId) {
@@ -75,21 +84,29 @@ export default function InvoiceDetailPage() {
           setDepartments(dList);
           setPurchaseOrders(poList);
 
-          setFormData({
+          const gst = inv.extraction_metadata?.gst_breakdown || {};
+          const initVals = {
             vendor_id: inv.vendor_id ? inv.vendor_id.toString() : "",
             department_id: inv.department_id ? inv.department_id.toString() : "",
             purchase_order_id: inv.purchase_order_id ? inv.purchase_order_id.toString() : "",
             invoice_number: inv.invoice_number || "",
             invoice_date: inv.invoice_date || "",
             due_date: inv.due_date || "",
-            subtotal: inv.subtotal ? inv.subtotal.toString() : "0.00",
-            tax_amount: inv.tax_amount ? inv.tax_amount.toString() : "0.00",
-            total_amount: inv.total_amount ? inv.total_amount.toString() : "0.00",
-            currency: inv.currency || "USD",
+            subtotal: inv.subtotal ? inv.subtotal.toString() : (gst.taxable_subtotal || "0.00"),
+            tax_amount: inv.tax_amount ? inv.tax_amount.toString() : (gst.total_tax || "0.00"),
+            total_amount: inv.total_amount ? inv.total_amount.toString() : (gst.grand_total || "0.00"),
+            currency: inv.currency || "INR",
             description: inv.description || "",
-            tax_identifier: inv.tax_identifier || "",
-          });
+            tax_identifier: inv.tax_identifier || gst.supplier_gstin || "",
+            cgst_amount: gst.cgst_amount || "",
+            sgst_amount: gst.sgst_amount || "",
+            igst_amount: gst.igst_amount || "",
+            customer_name: gst.customer_name || "",
+            customer_gstin: gst.customer_gstin || "",
+          };
 
+          setFormData(initVals);
+          setInitialExtracted(initVals);
           setLoading(false);
         })
         .catch((err) => {
@@ -122,6 +139,11 @@ export default function InvoiceDetailPage() {
         currency: formData.currency,
         description: formData.description,
         tax_identifier: formData.tax_identifier,
+        cgst_amount: formData.cgst_amount || undefined,
+        sgst_amount: formData.sgst_amount || undefined,
+        igst_amount: formData.igst_amount || undefined,
+        customer_name: formData.customer_name || undefined,
+        customer_gstin: formData.customer_gstin || undefined,
       });
 
       setInvoice(updated);
@@ -148,7 +170,12 @@ export default function InvoiceDetailPage() {
       setValidating(false);
       loadData();
     } catch (err: any) {
-      setValidationError(err.message || "Invoice validation failed.");
+      const detail = err.detail || err.message;
+      if (typeof detail === "object" && detail?.errors) {
+        setValidationError(`Validation Failed: ${detail.errors.join("; ")}`);
+      } else {
+        setValidationError(err.message || "Invoice validation failed.");
+      }
       setValidating(false);
     }
   };
@@ -179,6 +206,27 @@ export default function InvoiceDetailPage() {
   const isReviewable = ["NEEDS_REVIEW", "UPLOADED", "EXTRACTED", "DUPLICATE", "VALIDATED"].includes(
     invoice.processing_status
   );
+
+  const gstBreakdown = invoice.extraction_metadata?.gst_breakdown || {};
+  const fieldConfs = invoice.extraction_metadata?.field_confidences || {};
+  const reconciliationStatus = gstBreakdown.reconciliation_status || invoice.extraction_metadata?.reconciliation_status;
+  const reconciliationMessage = gstBreakdown.reconciliation_message || invoice.extraction_metadata?.reconciliation_message;
+
+  // Live reconciliation calculation for current inputs
+  const subNum = parseFloat(formData.subtotal || "0");
+  const cgstNum = parseFloat(formData.cgst_amount || "0");
+  const sgstNum = parseFloat(formData.sgst_amount || "0");
+  const igstNum = parseFloat(formData.igst_amount || "0");
+  const taxNum = (cgstNum || sgstNum) ? (cgstNum + sgstNum) : (igstNum ? igstNum : parseFloat(formData.tax_amount || "0"));
+  const totNum = parseFloat(formData.total_amount || "0");
+  const liveExpectedTot = subNum + taxNum;
+  const liveDiff = Math.abs(liveExpectedTot - totNum);
+  const isLiveReconciled = liveDiff <= 0.05 || (liveDiff <= 1.00 && gstBreakdown.roundoff_amount);
+
+  // Helper to determine whether a field was modified by user
+  const isFieldModified = (fieldName: string) => {
+    return initialExtracted[fieldName] !== undefined && formData[fieldName as keyof typeof formData] !== initialExtracted[fieldName];
+  };
 
   return (
     <div className="space-y-8">
@@ -260,6 +308,31 @@ export default function InvoiceDetailPage() {
         </div>
       )}
 
+      {/* Financial Reconciliation Status Banner */}
+      <div className={`p-4 rounded-xl border flex items-center justify-between text-xs ${
+        isLiveReconciled
+          ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+          : "border-amber-200 bg-amber-50 text-amber-900"
+      }`}>
+        <div className="flex items-center space-x-2.5">
+          <Calculator className={`h-4 w-4 ${isLiveReconciled ? "text-emerald-600" : "text-amber-600"}`} />
+          <div>
+            <span className="font-bold">
+              {isLiveReconciled ? "Financial Math Reconciled" : "Financial Reconciliation Warning"}
+            </span>
+            <p className="text-[11px] opacity-80">
+              Taxable Subtotal ({formatCurrency(subNum)}) + Total Tax ({formatCurrency(taxNum)}) = {formatCurrency(liveExpectedTot)} • Invoiced Grand Total: {formatCurrency(totNum)}
+              {!isLiveReconciled && ` (Difference: ${formatCurrency(liveDiff)})`}
+            </p>
+          </div>
+        </div>
+        <span className={`px-2.5 py-1 rounded-full font-mono text-[11px] font-bold ${
+          isLiveReconciled ? "bg-emerald-200 text-emerald-900" : "bg-amber-200 text-amber-900"
+        }`}>
+          {isLiveReconciled ? "RECONCILED" : "DISCREPANCY"}
+        </span>
+      </div>
+
       {/* Validation Feedback Messages */}
       {validationSuccess && (
         <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50 text-xs text-emerald-800 flex items-center space-x-2">
@@ -276,7 +349,7 @@ export default function InvoiceDetailPage() {
 
       {/* Human Review & Field Correction Panel */}
       {isReviewable && (
-        <div className="bg-white rounded-2xl border border-slate-200/90 p-6 shadow-sm space-y-5">
+        <div className="bg-white rounded-2xl border border-slate-200/90 p-6 shadow-sm space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-slate-100">
             <div>
               <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
@@ -308,10 +381,22 @@ export default function InvoiceDetailPage() {
           </div>
 
           {/* Form Fields Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-            {/* Vendor */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 text-xs">
+            {/* Vendor / Supplier */}
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Vendor / Supplier *</label>
+              <div className="flex items-center justify-between">
+                <label className="font-semibold text-slate-700">Vendor / Supplier *</label>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                  isFieldModified("vendor_id") ? "bg-amber-100 text-amber-800" : "bg-sky-100 text-sky-800"
+                }`}>
+                  {isFieldModified("vendor_id") ? "User-Corrected" : "Extracted (OCR)"}
+                </span>
+              </div>
+              {gstBreakdown.supplier_name && (
+                <p className="text-[11px] text-slate-500 font-medium">
+                  OCR Header: <span className="text-slate-800 font-bold">{gstBreakdown.supplier_name}</span>
+                </p>
+              )}
               <select
                 value={formData.vendor_id}
                 onChange={(e) => setFormData({ ...formData, vendor_id: e.target.value })}
@@ -328,7 +413,15 @@ export default function InvoiceDetailPage() {
 
             {/* Department */}
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Department *</label>
+              <div className="flex items-center justify-between">
+                <label className="font-semibold text-slate-700">Department *</label>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                  isFieldModified("department_id") ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"
+                }`}>
+                  {isFieldModified("department_id") ? "User-Assigned" : "Department"}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">Allocated budget unit</p>
               <select
                 value={formData.department_id}
                 onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
@@ -345,19 +438,83 @@ export default function InvoiceDetailPage() {
 
             {/* Invoice Number */}
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Invoice Number *</label>
+              <div className="flex items-center justify-between">
+                <label className="font-semibold text-slate-700">Invoice Number *</label>
+                <span className="text-[10px] text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-mono">
+                  {(fieldConfs.invoice_number ? fieldConfs.invoice_number * 100 : 95).toFixed(0)}% Conf
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">Extracted from invoice header</p>
               <input
                 type="text"
                 value={formData.invoice_number}
                 onChange={(e) => setFormData({ ...formData, invoice_number: e.target.value })}
-                placeholder="e.g. INV-2025-001"
+                placeholder="e.g. 9766 or INV-2025-001"
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
               />
             </div>
 
-            {/* Purchase Order */}
+            {/* Supplier GSTIN / Tax ID */}
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Linked Purchase Order</label>
+              <div className="flex items-center justify-between">
+                <label className="font-semibold text-slate-700">Supplier GSTIN / Tax ID</label>
+                <span className="text-[10px] text-sky-700 bg-sky-100 px-1.5 py-0.5 rounded font-mono">
+                  {(fieldConfs.tax_identifier ? fieldConfs.tax_identifier * 100 : 95).toFixed(0)}% Conf
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">Tax Identification</p>
+              <input
+                type="text"
+                value={formData.tax_identifier}
+                onChange={(e) => setFormData({ ...formData, tax_identifier: e.target.value })}
+                placeholder="e.g. 08HWZOU5586H5Z7"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+              />
+            </div>
+
+            {/* Customer / Billed To */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="font-semibold text-slate-700">Customer / Billed To</label>
+                <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
+                  {formData.customer_name ? "Extracted" : "Optional"}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">Invoice recipient entity</p>
+              <input
+                type="text"
+                value={formData.customer_name}
+                onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })}
+                placeholder="e.g. Agrawal Infotech"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+              />
+            </div>
+
+            {/* Customer GSTIN */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="font-semibold text-slate-700">Customer GSTIN</label>
+                <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
+                  {formData.customer_gstin ? "Extracted" : "Optional"}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">Customer tax registration</p>
+              <input
+                type="text"
+                value={formData.customer_gstin}
+                onChange={(e) => setFormData({ ...formData, customer_gstin: e.target.value })}
+                placeholder="e.g. 08FEYMY0855T9ZT"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+              />
+            </div>
+
+            {/* Linked Purchase Order */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="font-semibold text-slate-700">Linked Purchase Order</label>
+                <span className="text-[10px] text-slate-400">Optional</span>
+              </div>
+              <p className="text-[11px] text-slate-400">Match against university PO</p>
               <select
                 value={formData.purchase_order_id}
                 onChange={(e) => setFormData({ ...formData, purchase_order_id: e.target.value })}
@@ -374,7 +531,13 @@ export default function InvoiceDetailPage() {
 
             {/* Invoice Date */}
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Invoice Date *</label>
+              <div className="flex items-center justify-between">
+                <label className="font-semibold text-slate-700">Invoice Date *</label>
+                <span className="text-[10px] text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-mono">
+                  {(fieldConfs.invoice_date ? fieldConfs.invoice_date * 100 : 95).toFixed(0)}% Conf
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">Issue date of document</p>
               <input
                 type="date"
                 value={formData.invoice_date}
@@ -385,7 +548,11 @@ export default function InvoiceDetailPage() {
 
             {/* Due Date */}
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Due Date *</label>
+              <div className="flex items-center justify-between">
+                <label className="font-semibold text-slate-700">Due Date *</label>
+                <span className="text-[10px] text-slate-400">Payment Terms</span>
+              </div>
+              <p className="text-[11px] text-slate-400">Payment deadline</p>
               <input
                 type="date"
                 value={formData.due_date}
@@ -393,44 +560,107 @@ export default function InvoiceDetailPage() {
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
               />
             </div>
+          </div>
 
-            {/* Subtotal */}
-            <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Subtotal Amount</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.subtotal}
-                onChange={(e) => setFormData({ ...formData, subtotal: e.target.value })}
-                placeholder="0.00"
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
-              />
-            </div>
+          {/* Financial Breakdown Section */}
+          <div className="pt-4 border-t border-slate-100 space-y-3">
+            <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+              Financial Values & Tax Breakdown
+            </h4>
 
-            {/* Tax Amount */}
-            <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Tax Amount</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.tax_amount}
-                onChange={(e) => setFormData({ ...formData, tax_amount: e.target.value })}
-                placeholder="0.00"
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
-              />
-            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+              {/* Taxable Subtotal */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-slate-700">Taxable Subtotal</label>
+                  <span className="text-[10px] text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-mono">
+                    {(fieldConfs.subtotal ? fieldConfs.subtotal * 100 : 95).toFixed(0)}% Conf
+                  </span>
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.subtotal}
+                  onChange={(e) => setFormData({ ...formData, subtotal: e.target.value })}
+                  placeholder="0.00"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+                />
+              </div>
 
-            {/* Total Amount */}
-            <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Total Invoiced Amount *</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.total_amount}
-                onChange={(e) => setFormData({ ...formData, total_amount: e.target.value })}
-                placeholder="0.00"
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
-              />
+              {/* CGST Amount */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700">CGST Amount</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.cgst_amount}
+                  onChange={(e) => setFormData({ ...formData, cgst_amount: e.target.value })}
+                  placeholder="0.00"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+                />
+              </div>
+
+              {/* SGST Amount */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700">SGST Amount</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.sgst_amount}
+                  onChange={(e) => setFormData({ ...formData, sgst_amount: e.target.value })}
+                  placeholder="0.00"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+                />
+              </div>
+
+              {/* IGST Amount */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700">IGST Amount</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.igst_amount}
+                  onChange={(e) => setFormData({ ...formData, igst_amount: e.target.value })}
+                  placeholder="0.00"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+                />
+              </div>
+
+              {/* Total Tax Amount */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-slate-700">Total Tax</label>
+                  <span className="text-[10px] text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-mono">
+                    {(fieldConfs.tax_amount ? fieldConfs.tax_amount * 100 : 95).toFixed(0)}% Conf
+                  </span>
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.tax_amount}
+                  onChange={(e) => setFormData({ ...formData, tax_amount: e.target.value })}
+                  placeholder="0.00"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+                />
+              </div>
+
+              {/* Grand Total */}
+              <div className="space-y-1 md:col-span-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-slate-900">Grand Total Invoiced *</label>
+                  <span className="text-[10px] text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-mono">
+                    {(fieldConfs.total_amount ? fieldConfs.total_amount * 100 : 95).toFixed(0)}% Conf
+                  </span>
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.total_amount}
+                  onChange={(e) => setFormData({ ...formData, total_amount: e.target.value })}
+                  placeholder="0.00"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono font-bold text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -478,106 +708,38 @@ export default function InvoiceDetailPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="bg-slate-50/90 text-slate-500 font-semibold border-b border-slate-200">
-                <th className="py-3 px-4 w-16">Line</th>
-                <th className="py-3 px-4">Item Description</th>
-                <th className="py-3 px-4 text-right">Quantity</th>
-                <th className="py-3 px-4 text-right">Unit Price</th>
-                <th className="py-3 px-4 text-right">Tax Rate</th>
-                <th className="py-3 px-4 text-right">Line Total</th>
+              <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 font-semibold">
+                <th className="py-2.5 px-4 w-16">#</th>
+                <th className="py-2.5 px-4">Description</th>
+                <th className="py-2.5 px-4 text-right">Qty</th>
+                <th className="py-2.5 px-4 text-right">Unit Price</th>
+                <th className="py-2.5 px-4 text-right">Tax Rate</th>
+                <th className="py-2.5 px-4 text-right">Total</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {invoice.lines && invoice.lines.length > 0 ? (
                 invoice.lines.map((line) => (
-                  <tr key={line.id} className="hover:bg-slate-50/60">
-                    <td className="py-3 px-4 font-mono text-slate-500">{line.line_number}</td>
-                    <td className="py-3 px-4 font-medium text-slate-800">{line.description}</td>
-                    <td className="py-3 px-4 text-right font-mono text-slate-700">{line.quantity}</td>
-                    <td className="py-3 px-4 text-right font-mono text-slate-700">{formatCurrency(line.unit_price)}</td>
-                    <td className="py-3 px-4 text-right font-mono text-slate-500">{line.tax_rate}%</td>
-                    <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
+                  <tr key={line.id} className="hover:bg-slate-50/50">
+                    <td className="py-2.5 px-4 font-mono text-slate-400">{line.line_number}</td>
+                    <td className="py-2.5 px-4 font-medium text-slate-800">{line.description}</td>
+                    <td className="py-2.5 px-4 text-right font-mono">{line.quantity}</td>
+                    <td className="py-2.5 px-4 text-right font-mono">{formatCurrency(line.unit_price)}</td>
+                    <td className="py-2.5 px-4 text-right font-mono">{line.tax_rate}%</td>
+                    <td className="py-2.5 px-4 text-right font-mono font-bold text-slate-900">
                       {formatCurrency(line.line_total)}
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="py-6 text-center text-slate-400">
-                    Document processed as single summarized expense. Itemized lines can be attached upon matching.
+                  <td colSpan={6} className="py-6 text-center text-slate-400 text-xs">
+                    No itemized lines recorded. Subtotal and tax extracted from document totals summary.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
-        </div>
-      </div>
-
-      {/* Approval & Audit Timeline */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Approvals History */}
-        <div className="bg-white rounded-xl border border-slate-200/90 p-5 shadow-sm">
-          <h3 className="text-sm font-bold text-slate-900 pb-3 border-b border-slate-100 flex items-center space-x-2">
-            <UserCheck className="h-4 w-4 text-sky-600" />
-            <span>Approval Workflow & Decisions</span>
-          </h3>
-
-          <div className="mt-4 space-y-3">
-            {invoice.approvals && invoice.approvals.length > 0 ? (
-              invoice.approvals.map((app) => (
-                <div key={app.id} className="p-3 rounded-lg border border-slate-100 bg-slate-50 text-xs space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-slate-900">
-                      Level {app.approval_level} • {app.approver?.full_name || "Approver"}
-                    </span>
-                    <StatusBadge status={app.status} type="approval" />
-                  </div>
-                  {app.comments && (
-                    <p className="text-slate-600 bg-white p-2 rounded border border-slate-200/60 text-[11px]">
-                      &quot;{app.comments}&quot;
-                    </p>
-                  )}
-                  <div className="text-[10px] text-slate-400 flex justify-between">
-                    <span>Role: {app.approver?.role?.replace("_", " ")}</span>
-                    <span>{app.decided_at ? formatDateTime(app.decided_at) : "Pending Review"}</span>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-xs text-slate-400 py-4 text-center">
-                Invoice pending validation. Approvals trigger upon validation.
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Payments Information */}
-        <div className="bg-white rounded-xl border border-slate-200/90 p-5 shadow-sm">
-          <h3 className="text-sm font-bold text-slate-900 pb-3 border-b border-slate-100 flex items-center space-x-2">
-            <CreditCard className="h-4 w-4 text-sky-600" />
-            <span>Disbursement & Settlement</span>
-          </h3>
-
-          <div className="mt-4 space-y-3">
-            {invoice.payments && invoice.payments.length > 0 ? (
-              invoice.payments.map((p) => (
-                <div key={p.id} className="p-3 rounded-lg border border-slate-100 bg-slate-50 text-xs space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-slate-900">{p.payment_reference}</span>
-                    <StatusBadge status={p.status} type="payment" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600">
-                    <div>Method: <span className="font-medium text-slate-900">{p.payment_method}</span></div>
-                    <div>Amount: <span className="font-mono font-bold text-slate-900">{formatCurrency(p.amount)}</span></div>
-                    <div>Scheduled: {formatDate(p.scheduled_date)}</div>
-                    <div>Settled: {p.payment_date ? formatDate(p.payment_date) : "Pending"}</div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-xs text-slate-400 py-4 text-center">No payment scheduled for this invoice.</p>
-            )}
-          </div>
         </div>
       </div>
     </div>

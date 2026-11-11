@@ -169,19 +169,37 @@ async def upload_invoice(
     elif ocr_error_msg or len(raw_text.strip()) == 0:
         proc_status = "FAILED"
         extract_status = "FAILED"
-    elif len(extracted["missing_fields"]) > 0 or extracted["confidence_score"] < Decimal("70.00"):
+    elif len(extracted["missing_fields"]) > 0 or extracted["confidence_score"] < Decimal("70.00") or extracted.get("reconciliation_status") == "DISCREPANCY":
         proc_status = "NEEDS_REVIEW"
         extract_status = "NEEDS_REVIEW"
     else:
         proc_status = "EXTRACTED"
         extract_status = "EXTRACTED"
 
-    # Merge extraction metadata
+    # Merge extraction metadata with GST breakdown
     meta = {
         "ocr_meta": ocr_meta,
         "missing_fields": extracted["missing_fields"],
         "field_confidences": extracted["field_confidences"],
         "duplicate_warning": duplicate_warning,
+        "reconciliation_status": extracted.get("reconciliation_status"),
+        "reconciliation_message": extracted.get("reconciliation_message"),
+        "gst_breakdown": {
+            "supplier_name": extracted.get("vendor_name"),
+            "supplier_gstin": extracted.get("tax_identifier"),
+            "customer_name": extracted.get("customer_name"),
+            "customer_gstin": extracted.get("customer_gstin"),
+            "taxable_subtotal": str(extracted.get("subtotal") or "0.00"),
+            "cgst_amount": str(extracted.get("cgst_amount")) if extracted.get("cgst_amount") is not None else None,
+            "sgst_amount": str(extracted.get("sgst_amount")) if extracted.get("sgst_amount") is not None else None,
+            "igst_amount": str(extracted.get("igst_amount")) if extracted.get("igst_amount") is not None else None,
+            "total_tax": str(extracted.get("tax_amount") or "0.00"),
+            "grand_total": str(extracted.get("total_amount") or "0.00"),
+            "discount_amount": str(extracted.get("discount_amount")) if extracted.get("discount_amount") is not None else None,
+            "roundoff_amount": str(extracted.get("roundoff_amount")) if extracted.get("roundoff_amount") is not None else None,
+            "reconciliation_status": extracted.get("reconciliation_status"),
+            "reconciliation_message": extracted.get("reconciliation_message"),
+        },
     }
 
     # 7. Create Invoice database record
@@ -402,6 +420,52 @@ def review_and_correct_invoice(
     if corrections.tax_identifier is not None:
         invoice.tax_identifier = corrections.tax_identifier
 
+    # Update GST breakdown metadata if GST components provided
+    meta = dict(invoice.extraction_metadata or {})
+    gst_meta = dict(meta.get("gst_breakdown") or {})
+    if corrections.cgst_amount is not None:
+        gst_meta["cgst_amount"] = str(corrections.cgst_amount)
+    if corrections.sgst_amount is not None:
+        gst_meta["sgst_amount"] = str(corrections.sgst_amount)
+    if corrections.igst_amount is not None:
+        gst_meta["igst_amount"] = str(corrections.igst_amount)
+    if corrections.customer_name is not None:
+        gst_meta["customer_name"] = corrections.customer_name
+    if corrections.customer_gstin is not None:
+        gst_meta["customer_gstin"] = corrections.customer_gstin
+
+    # If tax_amount not explicitly given but CGST/SGST/IGST corrected, re-sum tax
+    if corrections.tax_amount is None:
+        if corrections.cgst_amount is not None or corrections.sgst_amount is not None:
+            c = corrections.cgst_amount if corrections.cgst_amount is not None else Decimal(gst_meta.get("cgst_amount") or "0.00")
+            s = corrections.sgst_amount if corrections.sgst_amount is not None else Decimal(gst_meta.get("sgst_amount") or "0.00")
+            invoice.tax_amount = c + s
+            gst_meta["total_tax"] = str(invoice.tax_amount)
+        elif corrections.igst_amount is not None:
+            invoice.tax_amount = corrections.igst_amount
+            gst_meta["total_tax"] = str(invoice.tax_amount)
+
+    # Re-evaluate reconciliation after corrections
+    sub_val = invoice.subtotal or Decimal("0.00")
+    tax_val = invoice.tax_amount or Decimal("0.00")
+    tot_val = invoice.total_amount or Decimal("0.00")
+    disc_val = Decimal(gst_meta.get("discount_amount") or "0.00") if gst_meta.get("discount_amount") else Decimal("0.00")
+    rnd_val = Decimal(gst_meta.get("roundoff_amount") or "0.00") if gst_meta.get("roundoff_amount") else Decimal("0.00")
+    expected_tot = sub_val + tax_val - disc_val + rnd_val
+    diff = abs(expected_tot - tot_val)
+
+    if diff <= Decimal("0.05") or (rnd_val != 0 and diff <= Decimal("1.00")):
+        gst_meta["reconciliation_status"] = "RECONCILED"
+        gst_meta["reconciliation_message"] = f"Reconciled: Subtotal ({sub_val}) + Tax ({tax_val}) = Total ({tot_val})"
+    else:
+        gst_meta["reconciliation_status"] = "DISCREPANCY"
+        gst_meta["reconciliation_message"] = f"Discrepancy: Expected ({expected_tot}) != Total ({tot_val}) [Diff: {diff}]"
+
+    meta["gst_breakdown"] = gst_meta
+    meta["reconciliation_status"] = gst_meta["reconciliation_status"]
+    meta["reconciliation_message"] = gst_meta["reconciliation_message"]
+    invoice.extraction_metadata = meta
+
     # Audit logging for correction
     audit = AuditLog(
         action="INVOICE_FIELDS_CORRECTED",
@@ -463,12 +527,20 @@ def validate_invoice(invoice_id: int, db: Session = Depends(get_db)):
     if invoice.invoice_date and invoice.due_date and invoice.due_date < invoice.invoice_date:
         errors.append("Due date cannot be earlier than invoice date.")
 
-    # Monetary consistency validation (subtotal + tax ~= total within 0.05 tolerance)
+    # Monetary consistency validation (subtotal + tax - discount + roundoff ~= total within tolerance)
     if invoice.total_amount and invoice.subtotal is not None and invoice.tax_amount is not None:
-        calc_total = invoice.subtotal + invoice.tax_amount
-        if abs(calc_total - invoice.total_amount) > Decimal("0.05"):
+        gst_breakdown = (invoice.extraction_metadata or {}).get("gst_breakdown") or {}
+        disc = Decimal(gst_breakdown.get("discount_amount") or "0.00") if gst_breakdown.get("discount_amount") else Decimal("0.00")
+        rnd = Decimal(gst_breakdown.get("roundoff_amount") or "0.00") if gst_breakdown.get("roundoff_amount") else Decimal("0.00")
+        calc_total = invoice.subtotal + invoice.tax_amount - disc + rnd
+        diff = abs(calc_total - invoice.total_amount)
+        max_tol = Decimal("1.00") if rnd != Decimal("0.00") else Decimal("0.05")
+        if diff > max_tol:
             errors.append(
-                f"Financial inconsistency: Subtotal ({invoice.subtotal}) + Tax ({invoice.tax_amount}) = {calc_total}, which does not match Total Amount ({invoice.total_amount})."
+                f"Financial inconsistency: Subtotal ({invoice.subtotal}) + Tax ({invoice.tax_amount})"
+                + (f" - Discount ({disc})" if disc > 0 else "")
+                + (f" + Rounding ({rnd})" if rnd != 0 else "")
+                + f" = {calc_total}, which does not match Total Amount ({invoice.total_amount})."
             )
 
     # Check for duplicate against other invoices

@@ -197,6 +197,26 @@ export interface InvoiceUploadResponse {
   extracted_data?: any;
 }
 
+export interface InvoiceReviewPayload {
+  vendor_id?: number;
+  department_id?: number;
+  purchase_order_id?: number;
+  invoice_number?: string;
+  invoice_date?: string;
+  due_date?: string;
+  subtotal?: string | number;
+  tax_amount?: string | number;
+  total_amount?: string | number;
+  currency?: string;
+  description?: string;
+  tax_identifier?: string;
+  cgst_amount?: string | number;
+  sgst_amount?: string | number;
+  igst_amount?: string | number;
+  customer_name?: string;
+  customer_gstin?: string;
+}
+
 export interface InvoiceValidationResponse {
   success: boolean;
   invoice_id: number;

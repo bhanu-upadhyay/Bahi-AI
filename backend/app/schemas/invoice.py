@@ -82,6 +82,11 @@ class InvoiceReviewUpdate(BaseModel):
     currency: Optional[str] = None
     description: Optional[str] = None
     tax_identifier: Optional[str] = None
+    cgst_amount: Optional[Decimal] = Field(None, ge=0)
+    sgst_amount: Optional[Decimal] = Field(None, ge=0)
+    igst_amount: Optional[Decimal] = Field(None, ge=0)
+    customer_name: Optional[str] = None
+    customer_gstin: Optional[str] = None
 
 
 class InvoiceResponse(InvoiceBase):

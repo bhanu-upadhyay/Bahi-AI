@@ -1,7 +1,7 @@
 import io
 import logging
 from pathlib import Path
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Union
 import fitz  # PyMuPDF
 from PIL import Image, ImageOps, ImageEnhance
 import pytesseract
@@ -37,11 +37,12 @@ def preprocess_image_for_ocr(image: Image.Image) -> Image.Image:
         return gray
 
 
-def extract_text_from_pdf(pdf_path: Path) -> Tuple[str, str, Dict[str, Any]]:
+def extract_text_from_pdf(pdf_path: Union[Path, str]) -> Tuple[str, str, Dict[str, Any]]:
     """Extracts text from PDF:
     1. Tests whether PDF contains digital text layer.
     2. Falls back to page-by-page OCR rendering if digital text is absent or sparse.
     """
+    pdf_path = Path(pdf_path)
     metadata: Dict[str, Any] = {"page_count": 0, "pages": []}
     text_blocks = []
 

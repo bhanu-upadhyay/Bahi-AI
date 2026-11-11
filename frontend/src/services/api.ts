@@ -3,6 +3,7 @@ import {
   Invoice,
   InvoiceUploadResponse,
   InvoiceValidationResponse,
+  InvoiceReviewPayload,
   Department,
   Vendor,
   PurchaseOrder,
@@ -93,7 +94,7 @@ export const api = {
     return res.json();
   },
 
-  reviewInvoice: (id: number, data: Partial<Invoice>): Promise<Invoice> =>
+  reviewInvoice: (id: number, data: InvoiceReviewPayload | Partial<Invoice>): Promise<Invoice> =>
     fetchJson<Invoice>(`/invoices/${id}/review`, {
       method: "POST",
       body: JSON.stringify(data),
