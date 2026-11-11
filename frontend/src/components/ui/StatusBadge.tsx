@@ -21,20 +21,30 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       case "MATCHED":
         styles = "bg-emerald-50 text-emerald-700 border-emerald-200";
         break;
+      case "VALIDATED":
+        styles = "bg-teal-50 text-teal-800 border-teal-200 font-semibold";
+        break;
+      case "EXTRACTED":
+        styles = "bg-sky-50 text-sky-700 border-sky-200";
+        break;
       case "PROCESSING":
         styles = "bg-blue-50 text-blue-700 border-blue-200";
         break;
+      case "UPLOADED":
       case "RECEIVED":
         styles = "bg-slate-50 text-slate-700 border-slate-200";
+        break;
+      case "NEEDS_REVIEW":
+        styles = "bg-amber-50 text-amber-800 border-amber-200 font-semibold";
         break;
       case "EXCEPTION":
         styles = "bg-amber-50 text-amber-800 border-amber-200";
         break;
       case "DUPLICATE":
-        styles = "bg-rose-50 text-rose-800 border-rose-200";
+        styles = "bg-rose-50 text-rose-800 border-rose-200 font-semibold";
         break;
-      case "EXTRACTED":
-        styles = "bg-cyan-50 text-cyan-800 border-cyan-200";
+      case "FAILED":
+        styles = "bg-rose-100 text-rose-900 border-rose-300 font-semibold";
         break;
       case "DELIVERED":
       case "INSPECTED":
@@ -50,7 +60,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   if (type === "approval") {
     switch (s) {
       case "APPROVED":
-        styles = "bg-emerald-50 text-emerald-700 border-emerald-200";
+        styles = "bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold";
         break;
       case "IN_REVIEW":
         styles = "bg-blue-50 text-blue-700 border-blue-200";
@@ -59,7 +69,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
         styles = "bg-amber-50 text-amber-800 border-amber-200";
         break;
       case "REJECTED":
-        styles = "bg-rose-50 text-rose-800 border-rose-200";
+        styles = "bg-rose-50 text-rose-800 border-rose-200 font-semibold";
         break;
     }
   }
@@ -68,7 +78,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
     switch (s) {
       case "PAID":
       case "COMPLETED":
-        styles = "bg-emerald-50 text-emerald-700 border-emerald-200";
+        styles = "bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold";
         break;
       case "SCHEDULED":
         styles = "bg-purple-50 text-purple-700 border-purple-200";
@@ -89,7 +99,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
         styles = "bg-rose-600 text-white border-rose-700 font-semibold";
         break;
       case "HIGH":
-        styles = "bg-rose-100 text-rose-800 border-rose-300";
+        styles = "bg-rose-100 text-rose-800 border-rose-300 font-medium";
         break;
       case "MEDIUM":
         styles = "bg-amber-100 text-amber-800 border-amber-300";
@@ -113,4 +123,3 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
     </span>
   );
 };
-

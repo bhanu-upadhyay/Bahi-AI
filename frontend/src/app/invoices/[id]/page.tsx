@@ -16,9 +16,15 @@ import {
   AlertTriangle,
   UserCheck,
   Package,
+  Download,
+  Save,
+  Check,
+  Sparkles,
+  FileSearch,
+  ExternalLink,
 } from "lucide-react";
 import { api } from "@/services/api";
-import { Invoice } from "@/types";
+import { Invoice, Vendor, Department, PurchaseOrder } from "@/types";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Skeleton } from "@/components/ui/LoadingSkeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -27,51 +33,156 @@ import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 export default function InvoiceDetailPage() {
   const params = useParams();
   const invoiceId = parseInt(params.id as string);
-  const [invoice, setInvoice] = useState<Invoice | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const [invoice, setInvoice] = useState<Invoice | null>(null);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [validationSuccess, setValidationSuccess] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [showRawText, setShowRawText] = useState(false);
+
+  // Editable Form State
+  const [formData, setFormData] = useState({
+    vendor_id: "",
+    department_id: "",
+    purchase_order_id: "",
+    invoice_number: "",
+    invoice_date: "",
+    due_date: "",
+    subtotal: "",
+    tax_amount: "",
+    total_amount: "",
+    currency: "USD",
+    description: "",
+    tax_identifier: "",
+  });
+
+  const loadData = () => {
     if (invoiceId) {
-      api
-        .getInvoiceById(invoiceId)
-        .then((res) => {
-          setInvoice(res);
+      Promise.all([
+        api.getInvoiceById(invoiceId),
+        api.getVendors(),
+        api.getDepartments(),
+        api.getPurchaseOrders(),
+      ])
+        .then(([inv, vList, dList, poList]) => {
+          setInvoice(inv);
+          setVendors(vList);
+          setDepartments(dList);
+          setPurchaseOrders(poList);
+
+          setFormData({
+            vendor_id: inv.vendor_id ? inv.vendor_id.toString() : "",
+            department_id: inv.department_id ? inv.department_id.toString() : "",
+            purchase_order_id: inv.purchase_order_id ? inv.purchase_order_id.toString() : "",
+            invoice_number: inv.invoice_number || "",
+            invoice_date: inv.invoice_date || "",
+            due_date: inv.due_date || "",
+            subtotal: inv.subtotal ? inv.subtotal.toString() : "0.00",
+            tax_amount: inv.tax_amount ? inv.tax_amount.toString() : "0.00",
+            total_amount: inv.total_amount ? inv.total_amount.toString() : "0.00",
+            currency: inv.currency || "USD",
+            description: inv.description || "",
+            tax_identifier: inv.tax_identifier || "",
+          });
+
           setLoading(false);
         })
         .catch((err) => {
-          setError(err.message || "Failed to load invoice details");
+          setValidationError(err.message || "Failed to load invoice details");
           setLoading(false);
         });
     }
+  };
+
+  useEffect(() => {
+    loadData();
   }, [invoiceId]);
+
+  const handleSaveCorrections = async () => {
+    setSaving(true);
+    setValidationSuccess(null);
+    setValidationError(null);
+
+    try {
+      const updated = await api.reviewInvoice(invoiceId, {
+        vendor_id: formData.vendor_id ? parseInt(formData.vendor_id) : undefined,
+        department_id: formData.department_id ? parseInt(formData.department_id) : undefined,
+        purchase_order_id: formData.purchase_order_id ? parseInt(formData.purchase_order_id) : undefined,
+        invoice_number: formData.invoice_number || undefined,
+        invoice_date: formData.invoice_date || undefined,
+        due_date: formData.due_date || undefined,
+        subtotal: formData.subtotal || undefined,
+        tax_amount: formData.tax_amount || undefined,
+        total_amount: formData.total_amount || undefined,
+        currency: formData.currency,
+        description: formData.description,
+        tax_identifier: formData.tax_identifier,
+      });
+
+      setInvoice(updated);
+      setValidationSuccess("Corrections saved successfully to audit log.");
+      setSaving(false);
+    } catch (err: any) {
+      setValidationError(err.message || "Failed to save corrections.");
+      setSaving(false);
+    }
+  };
+
+  const handleValidateInvoice = async () => {
+    setValidating(true);
+    setValidationSuccess(null);
+    setValidationError(null);
+
+    // Save current form state first
+    await handleSaveCorrections();
+
+    try {
+      const result = await api.validateInvoice(invoiceId);
+      setInvoice(result.invoice);
+      setValidationSuccess("Invoice successfully validated! Ready for approval and three-way matching.");
+      setValidating(false);
+      loadData();
+    } catch (err: any) {
+      setValidationError(err.message || "Invoice validation failed.");
+      setValidating(false);
+    }
+  };
 
   if (loading) {
     return (
       <div className="space-y-6">
         <Skeleton className="h-8 w-48" />
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <Skeleton className="h-64 rounded-xl lg:col-span-2" />
-          <Skeleton className="h-64 rounded-xl" />
+          <Skeleton className="h-96 rounded-xl lg:col-span-2" />
+          <Skeleton className="h-96 rounded-xl" />
         </div>
       </div>
     );
   }
 
-  if (error || !invoice) {
+  if (!invoice) {
     return (
       <EmptyState
         title="Invoice not found"
-        description={error || "The requested invoice could not be retrieved from the database."}
+        description="The requested invoice could not be retrieved from the database."
         actionText="Back to Invoices"
         onAction={() => window.history.back()}
       />
     );
   }
 
+  const isReviewable = ["NEEDS_REVIEW", "UPLOADED", "EXTRACTED", "DUPLICATE", "VALIDATED"].includes(
+    invoice.processing_status
+  );
+
   return (
     <div className="space-y-8">
-      {/* Top Breadcrumb & Action Header */}
+      {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center space-x-3">
           <Link
@@ -90,25 +201,36 @@ export default function InvoiceDetailPage() {
               <StatusBadge status={invoice.payment_status} type="payment" />
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Normalized key: <span className="font-mono text-slate-700">{invoice.normalized_invoice_number}</span> • Registered {formatDate(invoice.created_at)}
+              File: <span className="font-semibold text-slate-700">{invoice.original_filename || "N/A"}</span> • Uploaded {formatDateTime(invoice.created_at)}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-2.5">
+          {invoice.document_path && (
+            <a
+              href={api.getDocumentUrl(invoice.id)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition"
+            >
+              <Download className="h-3.5 w-3.5 text-slate-500" />
+              <span>Download Document</span>
+            </a>
+          )}
           {invoice.purchase_order && (
             <Link
               href="/matching"
               className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition"
             >
-              <GitCompare className="h-4 w-4 text-sky-600" />
+              <GitCompare className="h-3.5 w-3.5 text-sky-600" />
               <span>3-Way Match Record</span>
             </Link>
           )}
         </div>
       </div>
 
-      {/* Fraud / Anomaly Banner (if active alerts exist) */}
+      {/* Duplicate / Fraud Alert Banner */}
       {invoice.fraud_alerts && invoice.fraud_alerts.length > 0 && (
         <div className="rounded-xl border border-rose-300 bg-rose-50/80 p-5 text-rose-900 shadow-sm">
           <div className="flex items-start space-x-3">
@@ -138,105 +260,220 @@ export default function InvoiceDetailPage() {
         </div>
       )}
 
-      {/* Overview Metadata Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Vendor Card */}
-        <div className="bg-white rounded-xl border border-slate-200/90 p-5 shadow-sm space-y-3">
-          <div className="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-slate-500 pb-2 border-b border-slate-100">
-            <Building2 className="h-4 w-4 text-sky-600" />
-            <span>Vendor Details</span>
+      {/* Validation Feedback Messages */}
+      {validationSuccess && (
+        <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50 text-xs text-emerald-800 flex items-center space-x-2">
+          <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+          <span>{validationSuccess}</span>
+        </div>
+      )}
+      {validationError && (
+        <div className="p-4 rounded-xl border border-rose-200 bg-rose-50 text-xs text-rose-800 flex items-center space-x-2">
+          <AlertTriangle className="h-4 w-4 text-rose-600 flex-shrink-0" />
+          <span>{validationError}</span>
+        </div>
+      )}
+
+      {/* Human Review & Field Correction Panel */}
+      {isReviewable && (
+        <div className="bg-white rounded-2xl border border-slate-200/90 p-6 shadow-sm space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-slate-100">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+                <FileSearch className="h-4 w-4 text-sky-600" />
+                <span>Human Review & Field Validation</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Review OCR extracted parameters, resolve missing values, and validate invoice for university accounting
+              </p>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                disabled={saving}
+                onClick={handleSaveCorrections}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+              >
+                <Save className="h-3.5 w-3.5 text-slate-500" />
+                <span>{saving ? "Saving..." : "Save Changes"}</span>
+              </button>
+              <button
+                disabled={validating}
+                onClick={handleValidateInvoice}
+                className="inline-flex items-center space-x-1.5 px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition"
+              >
+                <Check className="h-3.5 w-3.5" />
+                <span>{validating ? "Validating..." : "Validate Invoice"}</span>
+              </button>
+            </div>
           </div>
-          <div>
-            <h4 className="text-sm font-bold text-slate-900">
-              {invoice.vendor?.legal_name || "Vendor"}
-            </h4>
-            <p className="text-xs text-slate-500 font-mono mt-0.5">
-              Code: {invoice.vendor?.vendor_code}
-            </p>
+
+          {/* Form Fields Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+            {/* Vendor */}
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">Vendor / Supplier *</label>
+              <select
+                value={formData.vendor_id}
+                onChange={(e) => setFormData({ ...formData, vendor_id: e.target.value })}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+              >
+                <option value="">-- Select Registered Supplier --</option>
+                {vendors.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.vendor_code} — {v.legal_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Department */}
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">Department *</label>
+              <select
+                value={formData.department_id}
+                onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+              >
+                <option value="">-- Select Department --</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.code} — {d.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Invoice Number */}
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">Invoice Number *</label>
+              <input
+                type="text"
+                value={formData.invoice_number}
+                onChange={(e) => setFormData({ ...formData, invoice_number: e.target.value })}
+                placeholder="e.g. INV-2025-001"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+              />
+            </div>
+
+            {/* Purchase Order */}
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">Linked Purchase Order</label>
+              <select
+                value={formData.purchase_order_id}
+                onChange={(e) => setFormData({ ...formData, purchase_order_id: e.target.value })}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+              >
+                <option value="">-- No PO Linked / Direct Spend --</option>
+                {purchaseOrders.map((po) => (
+                  <option key={po.id} value={po.id}>
+                    {po.po_number} ({formatCurrency(po.total_amount)})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Invoice Date */}
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">Invoice Date *</label>
+              <input
+                type="date"
+                value={formData.invoice_date}
+                onChange={(e) => setFormData({ ...formData, invoice_date: e.target.value })}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+              />
+            </div>
+
+            {/* Due Date */}
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">Due Date *</label>
+              <input
+                type="date"
+                value={formData.due_date}
+                onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+              />
+            </div>
+
+            {/* Subtotal */}
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">Subtotal Amount</label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.subtotal}
+                onChange={(e) => setFormData({ ...formData, subtotal: e.target.value })}
+                placeholder="0.00"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+              />
+            </div>
+
+            {/* Tax Amount */}
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">Tax Amount</label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.tax_amount}
+                onChange={(e) => setFormData({ ...formData, tax_amount: e.target.value })}
+                placeholder="0.00"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+              />
+            </div>
+
+            {/* Total Amount */}
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">Total Invoiced Amount *</label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.total_amount}
+                onChange={(e) => setFormData({ ...formData, total_amount: e.target.value })}
+                placeholder="0.00"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+              />
+            </div>
           </div>
-          <div className="text-xs text-slate-600 space-y-1 pt-1">
-            <p>Contact: {invoice.vendor?.contact_person}</p>
-            <p>Email: {invoice.vendor?.email}</p>
-            <p className="font-mono text-[11px]">Tax ID: {invoice.vendor?.tax_identifier}</p>
-            <p className="text-slate-400 font-mono text-[11px]">
-              Bank: {invoice.vendor?.bank_name} (•••• {invoice.vendor?.bank_account_last_four})
-            </p>
+        </div>
+      )}
+
+      {/* OCR Telemetry & Raw Text Accordion */}
+      <div className="bg-white rounded-xl border border-slate-200/90 p-5 shadow-sm space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-50 text-sky-700">
+              <Sparkles className="h-4 w-4" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-slate-900">OCR Extraction Telemetry</h4>
+              <p className="text-[11px] text-slate-500">
+                Method: <span className="font-mono text-slate-700">{invoice.ocr_method || "N/A"}</span> • Confidence:{" "}
+                <span className="font-mono font-semibold text-slate-800">
+                  {invoice.confidence_score ? `${invoice.confidence_score}%` : "Manual Entry"}
+                </span>{" "}
+                • Hash: <span className="font-mono text-[10px] text-slate-400">{invoice.file_hash?.slice(0, 16)}...</span>
+              </p>
+            </div>
           </div>
+          <button
+            onClick={() => setShowRawText(!showRawText)}
+            className="text-xs font-semibold text-sky-600 hover:text-sky-800"
+          >
+            {showRawText ? "Hide Raw Text" : "View Extracted Raw Text"}
+          </button>
         </div>
 
-        {/* PO & Department Card */}
-        <div className="bg-white rounded-xl border border-slate-200/90 p-5 shadow-sm space-y-3">
-          <div className="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-slate-500 pb-2 border-b border-slate-100">
-            <Package className="h-4 w-4 text-sky-600" />
-            <span>Purchase Order & Department</span>
+        {showRawText && (
+          <div className="mt-3 p-4 rounded-xl bg-slate-950 text-slate-200 font-mono text-[11px] max-h-60 overflow-y-auto whitespace-pre-wrap border border-slate-800">
+            {invoice.raw_text || "No raw text recorded for this invoice."}
           </div>
-          <div>
-            <h4 className="text-sm font-bold text-slate-900">
-              {invoice.department?.name || "Department"}
-            </h4>
-            <span className="text-xs font-mono font-medium text-slate-500">
-              Dept Code: {invoice.department?.code}
-            </span>
-          </div>
-          <div className="text-xs text-slate-600 space-y-1.5 pt-1">
-            <div className="flex justify-between">
-              <span>Linked PO:</span>
-              <span className="font-mono font-bold text-slate-900">
-                {invoice.purchase_order?.po_number || "No PO Linked"}
-              </span>
-            </div>
-            {invoice.purchase_order && (
-              <div className="flex justify-between">
-                <span>PO Total:</span>
-                <span className="font-mono text-slate-800">
-                  {formatCurrency(invoice.purchase_order.total_amount)}
-                </span>
-              </div>
-            )}
-            <div className="flex justify-between">
-              <span>Invoice Date:</span>
-              <span>{formatDate(invoice.invoice_date)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Due Date:</span>
-              <span className="font-semibold text-slate-800">{formatDate(invoice.due_date)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Financial Summary Card */}
-        <div className="bg-white rounded-xl border border-slate-200/90 p-5 shadow-sm space-y-3 flex flex-col justify-between">
-          <div className="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-slate-500 pb-2 border-b border-slate-100">
-            <CreditCard className="h-4 w-4 text-emerald-600" />
-            <span>Financial Breakdown</span>
-          </div>
-          <div className="space-y-2 text-xs">
-            <div className="flex justify-between text-slate-600">
-              <span>Subtotal:</span>
-              <span className="font-mono">{formatCurrency(invoice.subtotal)}</span>
-            </div>
-            <div className="flex justify-between text-slate-600">
-              <span>Tax (GST/VAT):</span>
-              <span className="font-mono">{formatCurrency(invoice.tax_amount)}</span>
-            </div>
-            <div className="pt-2 border-t border-slate-100 flex justify-between items-baseline">
-              <span className="text-sm font-bold text-slate-900">Total Payable:</span>
-              <span className="text-xl font-bold font-mono text-slate-900">
-                {formatCurrency(invoice.total_amount)}
-              </span>
-            </div>
-          </div>
-          <div className="pt-2 text-[11px] text-slate-400">
-            Payment Status: <span className="font-medium text-slate-700">{invoice.payment_status}</span>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Invoice Line Items Table */}
+      {/* Line Items Table */}
       <div className="bg-white rounded-xl border border-slate-200/90 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100">
           <h3 className="text-sm font-bold text-slate-900">Invoice Line Items</h3>
-          <p className="text-xs text-slate-500">Itemized line billing extracted from invoice document</p>
+          <p className="text-xs text-slate-500">Extracted and validated itemized service and goods lines</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
@@ -267,7 +504,7 @@ export default function InvoiceDetailPage() {
               ) : (
                 <tr>
                   <td colSpan={6} className="py-6 text-center text-slate-400">
-                    No itemized lines available.
+                    Document processed as single summarized expense. Itemized lines can be attached upon matching.
                   </td>
                 </tr>
               )}
@@ -307,7 +544,9 @@ export default function InvoiceDetailPage() {
                 </div>
               ))
             ) : (
-              <p className="text-xs text-slate-400 py-4 text-center">No approval records created yet.</p>
+              <p className="text-xs text-slate-400 py-4 text-center">
+                Invoice pending validation. Approvals trigger upon validation.
+              </p>
             )}
           </div>
         </div>
@@ -344,4 +583,3 @@ export default function InvoiceDetailPage() {
     </div>
   );
 }
-

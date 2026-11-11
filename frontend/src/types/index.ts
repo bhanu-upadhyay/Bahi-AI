@@ -145,21 +145,30 @@ export interface Invoice {
   id: number;
   invoice_number: string;
   normalized_invoice_number: string;
-  vendor_id: number;
+  vendor_id?: number | null;
   purchase_order_id?: number | null;
-  department_id: number;
-  invoice_date: string;
-  due_date: string;
-  subtotal: string | number;
+  department_id?: number | null;
+  invoice_date?: string | null;
+  due_date?: string | null;
+  subtotal?: string | number | null;
   tax_amount: string | number;
-  total_amount: string | number;
+  total_amount?: string | number | null;
   currency: string;
+  description?: string | null;
+  tax_identifier?: string | null;
   document_path?: string | null;
   original_filename?: string | null;
-  extraction_status: "PENDING" | "EXTRACTED" | "FAILED";
-  processing_status: "RECEIVED" | "PROCESSING" | "MATCHED" | "EXCEPTION" | "DUPLICATE";
-  approval_status: "PENDING" | "IN_REVIEW" | "APPROVED" | "REJECTED";
-  payment_status: "UNPAID" | "SCHEDULED" | "PAID" | "CANCELLED";
+  file_hash?: string | null;
+  file_size?: number | null;
+  mime_type?: string | null;
+  raw_text?: string | null;
+  ocr_method?: string | null;
+  confidence_score?: string | number | null;
+  extraction_metadata?: any;
+  extraction_status: string;
+  processing_status: string;
+  approval_status: string;
+  payment_status: string;
   created_at: string;
   updated_at: string;
   vendor?: Vendor;
@@ -169,6 +178,31 @@ export interface Invoice {
   approvals?: Approval[];
   payments?: Payment[];
   fraud_alerts?: FraudAlert[];
+}
+
+export interface InvoiceUploadResponse {
+  invoice_id: number;
+  invoice_number: string;
+  original_filename: string;
+  file_hash: string;
+  file_size: number;
+  mime_type: string;
+  ocr_method?: string | null;
+  confidence_score?: string | number | null;
+  processing_status: string;
+  extraction_status: string;
+  is_duplicate: boolean;
+  duplicate_warning?: string | null;
+  duplicate_invoice_id?: number | null;
+  extracted_data?: any;
+}
+
+export interface InvoiceValidationResponse {
+  success: boolean;
+  invoice_id: number;
+  processing_status: string;
+  message: string;
+  invoice: Invoice;
 }
 
 export interface Budget {

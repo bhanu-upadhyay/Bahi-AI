@@ -7,7 +7,7 @@ import {
   Filter,
   FileText,
   ArrowUpRight,
-  Plus,
+  UploadCloud,
   RefreshCw,
   Building,
 } from "lucide-react";
@@ -57,17 +57,17 @@ export default function InvoicesPage() {
 
   return (
     <div className="space-y-6">
-      {/* Top Header */}
+      {/* Top Header with Upload Action */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-slate-900">
             University Vendor Invoices
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Real-time accounts payable ledger and invoice match status
+            Real-time accounts payable ledger, OCR intake, and invoice match status
           </p>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-3">
           <button
             onClick={loadData}
             className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition"
@@ -75,6 +75,13 @@ export default function InvoicesPage() {
           >
             <RefreshCw className="h-4 w-4" />
           </button>
+          <Link
+            href="/invoices/upload"
+            className="inline-flex items-center space-x-2 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-md shadow-sky-900/20 transition"
+          >
+            <UploadCloud className="h-4 w-4" />
+            <span>Upload Invoice</span>
+          </Link>
         </div>
       </div>
 
@@ -98,11 +105,13 @@ export default function InvoicesPage() {
             onChange={(e) => setSelectedStatus(e.target.value)}
             className="text-xs rounded-lg border border-slate-200 px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
           >
-            <option value="">All Match Statuses</option>
+            <option value="">All Match & Intake Statuses</option>
+            <option value="NEEDS_REVIEW">Needs Review</option>
+            <option value="EXTRACTED">Extracted</option>
+            <option value="VALIDATED">Validated</option>
             <option value="MATCHED">Matched</option>
             <option value="EXCEPTION">Exceptions</option>
             <option value="DUPLICATE">Duplicate</option>
-            <option value="PROCESSING">Processing</option>
           </select>
 
           {/* Department Filter */}
@@ -129,12 +138,8 @@ export default function InvoicesPage() {
           <EmptyState
             title="No invoices found"
             description="No invoices match the selected filter criteria."
-            actionText="Reset Filters"
-            onAction={() => {
-              setSearch("");
-              setSelectedStatus("");
-              setSelectedDept("");
-            }}
+            actionText="Upload First Invoice"
+            onAction={() => window.location.href = "/invoices/upload"}
           />
         ) : (
           <div className="overflow-x-auto">
@@ -147,7 +152,7 @@ export default function InvoicesPage() {
                   <th className="py-3.5 px-4">Issue Date</th>
                   <th className="py-3.5 px-4">Due Date</th>
                   <th className="py-3.5 px-4">Total Amount</th>
-                  <th className="py-3.5 px-4">Match Status</th>
+                  <th className="py-3.5 px-4">Intake & Match</th>
                   <th className="py-3.5 px-4">Approval</th>
                   <th className="py-3.5 px-4">Payment</th>
                   <th className="py-3.5 px-4 text-right">Action</th>
@@ -162,12 +167,18 @@ export default function InvoicesPage() {
                       </Link>
                     </td>
                     <td className="py-3 px-4 text-slate-800 font-medium max-w-xs truncate">
-                      {inv.vendor?.legal_name || "Vendor"}
+                      {inv.vendor?.legal_name || (
+                        <span className="text-amber-600 italic">Unassigned Vendor</span>
+                      )}
                     </td>
                     <td className="py-3 px-4">
-                      <span className="px-2 py-0.5 rounded bg-slate-100 font-mono text-[11px] text-slate-700 font-medium">
-                        {inv.department?.code || "DEPT"}
-                      </span>
+                      {inv.department ? (
+                        <span className="px-2 py-0.5 rounded bg-slate-100 font-mono text-[11px] text-slate-700 font-medium">
+                          {inv.department.code}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-[11px]">—</span>
+                      )}
                     </td>
                     <td className="py-3 px-4 text-slate-500">{formatDate(inv.invoice_date)}</td>
                     <td className="py-3 px-4 text-slate-500">{formatDate(inv.due_date)}</td>
@@ -188,7 +199,7 @@ export default function InvoicesPage() {
                         href={`/invoices/${inv.id}`}
                         className="inline-flex items-center text-sky-600 hover:text-sky-800 font-semibold text-xs px-2.5 py-1 rounded-md hover:bg-sky-50 transition"
                       >
-                        <span>Review</span>
+                        <span>{inv.processing_status === "NEEDS_REVIEW" ? "Review" : "Details"}</span>
                         <ArrowUpRight className="h-3 w-3 ml-0.5" />
                       </Link>
                     </td>
@@ -202,4 +213,3 @@ export default function InvoicesPage() {
     </div>
   );
 }
-

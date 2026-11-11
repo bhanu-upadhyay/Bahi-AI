@@ -1,5 +1,5 @@
 -- Bahi-AI PostgreSQL Database Schema
--- Auto-generated for Phase 1
+-- Auto-generated for Phase 2
 
 
 CREATE TABLE departments (
@@ -133,17 +133,26 @@ CREATE TABLE invoices (
 	id SERIAL NOT NULL, 
 	invoice_number VARCHAR(100) NOT NULL, 
 	normalized_invoice_number VARCHAR(100) NOT NULL, 
-	vendor_id INTEGER NOT NULL, 
+	vendor_id INTEGER, 
 	purchase_order_id INTEGER, 
-	department_id INTEGER NOT NULL, 
-	invoice_date DATE NOT NULL, 
-	due_date DATE NOT NULL, 
-	subtotal NUMERIC(14, 2) NOT NULL, 
+	department_id INTEGER, 
+	invoice_date DATE, 
+	due_date DATE, 
+	subtotal NUMERIC(14, 2), 
 	tax_amount NUMERIC(14, 2) NOT NULL, 
-	total_amount NUMERIC(14, 2) NOT NULL, 
+	total_amount NUMERIC(14, 2), 
 	currency VARCHAR(10) NOT NULL, 
+	description TEXT, 
+	tax_identifier VARCHAR(100), 
 	document_path VARCHAR(500), 
 	original_filename VARCHAR(255), 
+	file_hash VARCHAR(64), 
+	file_size INTEGER, 
+	mime_type VARCHAR(100), 
+	raw_text TEXT, 
+	ocr_method VARCHAR(50), 
+	confidence_score NUMERIC(5, 2), 
+	extraction_metadata JSON, 
 	extraction_status VARCHAR(50) NOT NULL, 
 	processing_status VARCHAR(50) NOT NULL, 
 	approval_status VARCHAR(50) NOT NULL, 

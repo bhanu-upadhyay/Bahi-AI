@@ -1,13 +1,14 @@
 from datetime import date, datetime
 from decimal import Decimal
 import re
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    JSON,
     Numeric,
     String,
     Text,
@@ -41,25 +42,39 @@ class Invoice(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     invoice_number: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     normalized_invoice_number: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-    vendor_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("vendors.id", ondelete="RESTRICT"), nullable=False, index=True
+    vendor_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("vendors.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     purchase_order_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("purchase_orders.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    department_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("departments.id", ondelete="RESTRICT"), nullable=False, index=True
+    department_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("departments.id", ondelete="RESTRICT"), nullable=True, index=True
     )
-    invoice_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    due_date: Mapped[date] = mapped_column(Date, nullable=False)
-    subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    invoice_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
+    due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    subtotal: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2), default=Decimal("0.00"), nullable=True)
     tax_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"), nullable=False)
-    total_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, index=True)
+    total_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2), default=Decimal("0.00"), nullable=True, index=True)
     currency: Mapped[str] = mapped_column(String(10), default="USD", nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tax_identifier: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # File and upload metadata
     document_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     original_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    file_hash: Mapped[Optional[str]] = mapped_column(String(64), index=True, nullable=True)
+    file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    mime_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # OCR and Extraction metadata
+    raw_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ocr_method: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    confidence_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True)
+    extraction_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
 
     # Status tracking
+    # processing_status: UPLOADED, PROCESSING, EXTRACTED, NEEDS_REVIEW, VALIDATED, MATCHED, EXCEPTION, DUPLICATE, FAILED
     extraction_status: Mapped[str] = mapped_column(String(50), default="PENDING", nullable=False, index=True)
     processing_status: Mapped[str] = mapped_column(String(50), default="RECEIVED", nullable=False, index=True)
     approval_status: Mapped[str] = mapped_column(String(50), default="PENDING", nullable=False, index=True)
@@ -77,12 +92,13 @@ class Invoice(Base):
         Index("ix_invoices_dept_status", "department_id", "processing_status"),
         Index("ix_invoices_approval_status", "approval_status"),
         Index("ix_invoices_payment_status", "payment_status"),
+        Index("ix_invoices_file_hash", "file_hash"),
     )
 
     # Relationships
-    vendor: Mapped["Vendor"] = relationship("Vendor", back_populates="invoices")
+    vendor: Mapped[Optional["Vendor"]] = relationship("Vendor", back_populates="invoices")
     purchase_order: Mapped[Optional["PurchaseOrder"]] = relationship("PurchaseOrder", back_populates="invoices")
-    department: Mapped["Department"] = relationship("Department", back_populates="invoices")
+    department: Mapped[Optional["Department"]] = relationship("Department", back_populates="invoices")
     lines: Mapped[List["InvoiceLine"]] = relationship(
         "InvoiceLine", back_populates="invoice", cascade="all, delete-orphan", order_by="InvoiceLine.line_number"
     )
@@ -116,4 +132,3 @@ class InvoiceLine(Base):
 
     # Relationships
     invoice: Mapped["Invoice"] = relationship("Invoice", back_populates="lines")
-

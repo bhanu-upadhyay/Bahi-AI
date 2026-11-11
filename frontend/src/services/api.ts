@@ -1,6 +1,8 @@
 import {
   DashboardSummary,
   Invoice,
+  InvoiceUploadResponse,
+  InvoiceValidationResponse,
   Department,
   Vendor,
   PurchaseOrder,
@@ -26,13 +28,21 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}));
-    throw new Error(errorBody.detail || `Request failed with status ${res.status}`);
+    const message =
+      errorBody.detail?.message ||
+      (Array.isArray(errorBody.detail?.errors) ? errorBody.detail.errors.join("; ") : null) ||
+      errorBody.detail ||
+      `Request failed with status ${res.status}`;
+    throw new Error(message);
   }
 
   return res.json();
 }
 
 export const api = {
+  // Base URL
+  baseUrl: API_BASE_URL,
+
   // Dashboard
   getDashboardSummary: (): Promise<DashboardSummary> => fetchJson<DashboardSummary>("/dashboard/summary"),
 
@@ -61,6 +71,43 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  // Phase 2: Upload, Review & Validation
+  uploadInvoice: async (file: File, departmentId?: number): Promise<InvoiceUploadResponse> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (departmentId) {
+      formData.append("department_id", departmentId.toString());
+    }
+
+    const res = await fetch(`${API_BASE_URL}/invoices/upload`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const errorBody = await res.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Upload failed with status ${res.status}`);
+    }
+
+    return res.json();
+  },
+
+  reviewInvoice: (id: number, data: Partial<Invoice>): Promise<Invoice> =>
+    fetchJson<Invoice>(`/invoices/${id}/review`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  validateInvoice: (id: number): Promise<InvoiceValidationResponse> =>
+    fetchJson<InvoiceValidationResponse>(`/invoices/${id}/validate`, {
+      method: "POST",
+    }),
+
+  getInvoiceExtraction: (id: number): Promise<any> =>
+    fetchJson<any>(`/invoices/${id}/extraction`),
+
+  getDocumentUrl: (id: number): string => `${API_BASE_URL}/invoices/${id}/document`,
 
   // Departments
   getDepartments: (): Promise<Department[]> => fetchJson<Department[]>("/departments"),
@@ -133,4 +180,3 @@ export const api = {
   // Users
   getUsers: (): Promise<User[]> => fetchJson<User[]>("/users"),
 };
-
