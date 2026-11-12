@@ -31,9 +31,10 @@ University accounts payable departments face significant operational challenges:
 - **ORM & Database:** SQLAlchemy 2.0 & PostgreSQL 16 (via Psycopg 3)
 - **Migrations:** Alembic
 - **Document OCR:** PyMuPDF, Tesseract OCR, Pillow
+- **AI & LLM Orchestration:** Google GenAI Python SDK (`google-genai==1.47.0`), Gemini 3.5 Flash-Lite (`gemini-3.5-flash-lite`), Dynamic Tool Calling Orchestration (13 registered tools), JSON-based policy engine
 - **Validation:** Pydantic v2
 - **Authentication & Security:** Argon2id (`pwdlib`), PyJWT (HS256)
-- **Testing:** Pytest & FastAPI TestClient (56 automated tests)
+- **Testing:** Pytest & FastAPI TestClient (70 automated tests)
 
 ### Frontend
 - **Framework:** Next.js 15 (App Router, Server & Client Components)
@@ -57,13 +58,13 @@ flowchart TD
         OCR --> Recon[GST Math Reconciliation]
     end
 
-    subgraph Agents ["2. Multi-Agent AI Automation"]
-        Recon --> Orch[Agent Orchestrator]
-        Orch --> A1[Invoice Understanding Agent]
-        Orch --> A2[Vendor Verification Agent]
-        Orch --> A3[Three-Way Matching Agent]
-        Orch --> A4[Fraud & Risk Agent]
-        Orch --> A5[Approval Recommendation Agent]
+    subgraph Agents ["2. Dynamic AI Orchestration & Multi-Agent Intelligence"]
+        Recon --> DynOrch[Gemini Dynamic AP Orchestrator]
+        DynOrch -.->|Dynamic Tool Selection| Tools[13 Backend Safe Tools & Policies]
+        DynOrch -->|Deterministic Fallback| Fallback[5 Specialized AP Agents]
+        Tools --> Evidence[Collected Evidence & Risk Scoring]
+        Fallback --> Evidence
+        Evidence --> Review[Request Human Review Sign-Off]
     end
 
     subgraph Governance ["3. Human-in-the-Loop Approval"]

@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "policy_name": "Departmental Cost Center & Budget Governance Rules",
+  "last_updated": "2026-11-12",
+  "current_fiscal_year": "2024-2025",
+  "thresholds": {
+    "warning_utilization_percentage": 80.0,
+    "critical_utilization_percentage": 95.0,
+    "hard_block_overspend": true
+  },
+  "rules": {
+    "overspend_policy": "Invoices exceeding remaining available department budget cannot be paid without supplemental faculty budget allocation.",
+    "encumbrance_timing": "Encumber upon PO issuance; confirm charge upon invoice validation."
+  }
+}

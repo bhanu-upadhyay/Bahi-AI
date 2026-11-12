@@ -22,6 +22,9 @@ import {
   ArrowRight,
   ExternalLink,
   ShieldCheck,
+  Wrench,
+  Terminal,
+  Cpu,
 } from "lucide-react";
 import { api } from "@/services/api";
 import {
@@ -55,7 +58,7 @@ export const MultiAgentHub: React.FC<MultiAgentHubProps> = ({
   const [running, setRunning] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [showLogs, setShowLogs] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "lines" | "telemetry">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "lines" | "telemetry" | "tools">("overview");
 
   const fetchAnalysisData = async () => {
     try {
@@ -173,13 +176,24 @@ export const MultiAgentHub: React.FC<MultiAgentHubProps> = ({
             <div className="flex items-center space-x-2">
               <h3 className="text-base font-bold tracking-tight text-white flex items-center space-x-2">
                 <span>Autonomous AP Intelligence Hub</span>
-                <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
-                  Phase 3 Multi-Agent
-                </span>
+                {analysis?.orchestration_mode === "GEMINI_DYNAMIC" ? (
+                  <span className="text-[10px] uppercase font-mono font-bold px-2.5 py-0.5 rounded-full bg-purple-500/30 text-purple-200 border border-purple-400/30 flex items-center space-x-1">
+                    <Sparkles className="h-3 w-3 inline text-purple-300 mr-1" />
+                    Gemini Dynamic Orchestrator
+                  </span>
+                ) : analysis?.orchestration_mode === "FALLBACK_RULE_BASED" ? (
+                  <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full bg-amber-500/30 text-amber-200 border border-amber-400/30">
+                    Rule-Based Fallback
+                  </span>
+                ) : (
+                  <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
+                    Gemini AI Orchestrator
+                  </span>
+                )}
               </h3>
             </div>
             <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-              Five collaborative AI agents sequentially analyze invoice text, verify vendor credentials, execute 3-way PO/GRN matching, detect overbilling and fraud, and provide recommendation for human sign-off.
+              Dynamic LLM-led accounts payable orchestration powered by Google Gemini with strict financial guardrails, automated 3-way matching, fraud detection, and policy compliance verification.
             </p>
           </div>
         </div>
@@ -266,6 +280,21 @@ export const MultiAgentHub: React.FC<MultiAgentHubProps> = ({
                     <span className="text-[11px] font-semibold opacity-75">
                       • Confidence: {formatConfidence(analysis.approval_recommendation?.confidence)}
                     </span>
+                    {analysis.model_used && (
+                      <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-black/5 text-slate-700">
+                        <Cpu className="h-3 w-3 text-indigo-600" />
+                        <span>{analysis.model_used}</span>
+                      </span>
+                    )}
+                    {analysis.orchestration_mode && (
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold font-mono ${
+                        analysis.orchestration_mode === "GEMINI_DYNAMIC"
+                          ? "bg-purple-100 text-purple-800 border border-purple-200"
+                          : "bg-amber-100 text-amber-800 border border-amber-200"
+                      }`}>
+                        {analysis.orchestration_mode === "GEMINI_DYNAMIC" ? "AI DYNAMIC" : "FALLBACK"}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs mt-1 leading-relaxed opacity-90 max-w-3xl">
                     {analysis.approval_recommendation?.executive_summary || "Multi-agent evaluation completed."}
@@ -328,6 +357,17 @@ export const MultiAgentHub: React.FC<MultiAgentHubProps> = ({
               }`}
             >
               Agents Synthesis (5 Agents)
+            </button>
+            <button
+              onClick={() => setActiveTab("tools")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
+                activeTab === "tools"
+                  ? "bg-purple-900 text-white shadow-sm"
+                  : "text-purple-700 hover:bg-purple-50"
+              }`}
+            >
+              <Sparkles className="h-3 w-3" />
+              <span>AI Dynamic Tools ({analysis.tool_executions?.length || 0})</span>
             </button>
             <button
               onClick={() => setActiveTab("lines")}
@@ -818,6 +858,80 @@ export const MultiAgentHub: React.FC<MultiAgentHubProps> = ({
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* TAB 4: AI Dynamic Tool Telemetry */}
+          {activeTab === "tools" && (
+            <div className="border border-slate-200 rounded-xl overflow-hidden space-y-4 p-4 bg-slate-50/50">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3.5 bg-purple-50 rounded-xl border border-purple-200">
+                <div className="flex items-center space-x-2">
+                  <Sparkles className="h-4 w-4 text-purple-700 flex-shrink-0" />
+                  <h4 className="text-xs font-bold text-purple-900">
+                    Google Gemini Dynamic Tool Calling Timeline
+                  </h4>
+                </div>
+                <span className="text-[11px] font-mono font-semibold text-purple-700">
+                  Model: {analysis.model_used || "gemini-3.5-flash-lite"} • Mode: {analysis.orchestration_mode}
+                </span>
+              </div>
+
+              {analysis.tool_executions && analysis.tool_executions.length > 0 ? (
+                <div className="relative pl-6 space-y-4 before:absolute before:left-2.5 before:top-3 before:bottom-3 before:w-0.5 before:bg-purple-200">
+                  {analysis.tool_executions.map((tool, idx) => (
+                    <div key={idx} className="relative flex items-start space-x-3 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+                      <div className="absolute -left-6 top-4 flex h-5 w-5 items-center justify-center rounded-full bg-purple-600 text-[10px] font-bold text-white shadow-sm ring-4 ring-white">
+                        {tool.step_number}
+                      </div>
+                      <div className="w-full space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center space-x-2">
+                            <span className="font-mono text-xs font-bold text-slate-900 flex items-center space-x-1.5">
+                              <Wrench className="h-3.5 w-3.5 text-purple-600" />
+                              <span>{tool.tool_name}</span>
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                                tool.status === "SUCCESS"
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : tool.status === "REJECTED"
+                                  ? "bg-amber-100 text-amber-800"
+                                  : "bg-rose-100 text-rose-800"
+                              }`}
+                            >
+                              {tool.status}
+                            </span>
+                          </div>
+                          <span className="font-mono text-[10px] text-slate-400">
+                            {tool.duration_ms.toFixed(1)} ms
+                          </span>
+                        </div>
+
+                        {tool.arguments && Object.keys(tool.arguments).length > 0 && (
+                          <div className="text-[11px] font-mono bg-slate-50 p-2 rounded-lg border border-slate-100 text-slate-600 overflow-x-auto">
+                            <span className="text-slate-400 font-semibold select-none">args: </span>
+                            {JSON.stringify(tool.arguments)}
+                          </div>
+                        )}
+
+                        <p className="text-xs text-slate-700 leading-relaxed font-sans">
+                          {tool.summary}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-8 text-center bg-white rounded-xl border border-slate-200 space-y-2">
+                  <Terminal className="h-8 w-8 text-slate-400 mx-auto" />
+                  <p className="text-xs font-bold text-slate-700">No Dynamic Tool Telemetry Recorded</p>
+                  <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+                    {analysis.orchestration_mode === "FALLBACK_RULE_BASED"
+                      ? "This invoice was analyzed using the deterministic 5-agent fallback pipeline without dynamic tool loops."
+                      : "Click 'Re-Run AI Analysis' to execute dynamic Gemini tool orchestration."}
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>

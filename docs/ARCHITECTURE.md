@@ -92,11 +92,24 @@ sequenceDiagram
 ```
 
 ### Agent Roles & Guardrails:
-1. **Invoice Understanding Agent:** Evaluates OCR confidence, line item totals, and GST breakdown (CGST, SGST, IGST). Flags clerical or rounding discrepancies.
-2. **Vendor Verification Agent:** Cross-references supplier legal name and GSTIN against the university vendor directory. Flags unregistered suppliers.
-3. **Three-Way Matching Agent:** Cross-verifies line-level unit prices and quantities against authorized Purchase Orders (PO) and Goods Receipt Notes (GRN).
-4. **Fraud & Risk Detection Agent:** Synthesizes mismatch signals, duplicate file hashes, overbilling percentages, and high-risk flags into a weighted risk score (0–100).
-5. **Approval Recommendation Agent:** Recommends formal action (`APPROVE`, `REVIEW`, `REJECT`). **Non-autonomous policy:** Agents never approve invoices directly; human officer sign-off is mandatory.
+1. **Gemini Dynamic AP Orchestrator (`DynamicAPOrchestrator`):** An LLM-led bounded reasoning engine powered by Google Gemini (`gemini-3.5-flash-lite`). Dynamically inspects evidence and decides which tools to invoke based on findings rather than following a static hardcoded pipeline. Enforces an 8-tool call limit, 10-iteration loop cap, and loop detection preventing redundant calls.
+2. **Safe Tool Registry (13 Registered Backend Tools):**
+   - `get_invoice_details`: Verified invoice header, lines, and OCR metadata.
+   - `get_vendor_details`: Official vendor master directory record.
+   - `verify_vendor_status`: GSTIN match and active status verification.
+   - `get_purchase_order`: PO contracted rates and quantities.
+   - `get_grn_details`: Physical Goods Receipt Notes and accepted counts.
+   - `check_duplicate_invoice`: SHA-256 hash and normalized number collision check.
+   - `validate_invoice_totals`: Clerical reconciliation (Subtotal + Tax == Total).
+   - `check_department_budget`: Cost center encumbrance and available balance.
+   - `run_three_way_matching`: 3-way line matching across invoice, PO, and GRN.
+   - `run_fraud_analysis`: 7-dimension composite fraud risk score (0-100).
+   - `run_invoice_understanding`: OCR quality, missing fields, and tax type.
+   - `get_applicable_approval_policy`: Policy delegation tier determination.
+   - `request_human_review`: Concludes orchestration and formats recommendation for human review.
+3. **Hard Financial Safety Guardrails (Non-autonomous Policy):** AI and agents NEVER approve invoices, NEVER disburse funds, and NEVER post to ERP autonomously. All sensitive financial actions require human officer sign-off.
+4. **Prompt Injection & Untrusted Data Defense:** All raw document OCR and vendor-supplied text are enclosed in `<untrusted_document_content>...</untrusted_document_content>`. System instructions strictly direct the LLM to treat content within these tags as passive untrusted data and ignore embedded directives.
+5. **Deterministic 5-Agent Fallback:** If Gemini is unavailable, rate-limited, or times out, the system automatically falls back to the deterministic 5-agent pipeline (`InvoiceUnderstandingAgent`, `VendorVerificationAgent`, `ThreeWayMatchingAgent`, `FraudRiskAgent`, `ApprovalRecommendationAgent`), setting `orchestration_mode = "FALLBACK_RULE_BASED"`.
 
 ---
 
@@ -135,3 +148,4 @@ The ERP layer utilizes an adapter pattern to separate core business logic from e
 - `MockUniversityERPAdapter`: Realistic simulation generating `UERP-2026-INV-XXXX` references with simulated latency (100–300ms) and network failure injection for testing.
 - `SAPAdapter`, `OracleERPAdapter`, `GenericRESTAdapter`: Pre-wired enterprise stubs ready for future enterprise connector bindings.
 - **Strict 7-Gate Posting Validator:** Human approval check, non-duplicate check, positive total check, active vendor check, department assignment check, COA check, and currency validation.
+

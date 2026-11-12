@@ -1,0 +1,38 @@
+{
+  "version": "1.0.0",
+  "institution": "University Accounts & Procurement Directorate",
+  "policy_name": "Delegation of Financial Powers and Approval Thresholds",
+  "last_updated": "2026-11-12",
+  "tiers": [
+    {
+      "tier": 1,
+      "role": "HOD",
+      "title": "Head of Department",
+      "max_amount": 50000.00,
+      "currency": "INR",
+      "scope": "Departmental operational supplies, lab consumables, and minor services within approved annual faculty budget."
+    },
+    {
+      "tier": 2,
+      "role": "FINANCE_OFFICER",
+      "title": "University Finance Officer",
+      "max_amount": 200000.00,
+      "currency": "INR",
+      "scope": "IT equipment, software licenses, research grants, and university-wide standard procurement contracts."
+    },
+    {
+      "tier": 3,
+      "role": "FINANCE_ADMIN",
+      "title": "Finance Administrator / University Comptroller",
+      "max_amount": null,
+      "currency": "INR",
+      "scope": "Capital expenditure, major infrastructure, high-value framework contracts, and disputed exceptions."
+    }
+  ],
+  "escalation_rules": {
+    "high_risk_escalation_score": 60,
+    "require_finance_admin_for_exceptions": true,
+    "block_unapproved_vendor_approval": true,
+    "block_overbilled_invoices": true
+  }
+}

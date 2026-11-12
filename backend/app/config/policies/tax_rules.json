@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "policy_name": "Statutory GST and Tax Reconciliation Rules",
+  "last_updated": "2026-11-12",
+  "university_home_state_code": "08",
+  "university_home_state_name": "Rajasthan",
+  "statutory_gst_rates": [0.0, 5.0, 12.0, 18.0, 28.0],
+  "max_allowable_roundoff_inr": 1.00,
+  "tax_regime": {
+    "intra_state": {
+      "condition": "Supplier GSTIN prefix equals university state code (08)",
+      "allocation": "50% CGST (Account 1401) + 50% SGST (Account 1402)"
+    },
+    "inter_state": {
+      "condition": "Supplier GSTIN prefix does not equal university state code (08)",
+      "allocation": "100% IGST (Account 1403)"
+    }
+  }
+}

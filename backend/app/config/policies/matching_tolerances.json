@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "policy_name": "Three-Way Match Verification Tolerances",
+  "last_updated": "2026-11-12",
+  "unit_price_tolerance_percentage": 0.00,
+  "quantity_tolerance_units": 0.00,
+  "line_total_tolerance_inr": 0.00,
+  "allow_partial_deliveries": true,
+  "require_formal_grn": true,
+  "rules": {
+    "price_check": "Invoiced unit price must match authorized purchase order line rate within 0.00% variance.",
+    "quantity_check": "Invoiced quantity must be less than or equal to accepted quantity on formal Goods Receipt Note (GRN).",
+    "unmatched_line_policy": "Any line item without matching PO line item triggers matching discrepancy flag."
+  }
+}

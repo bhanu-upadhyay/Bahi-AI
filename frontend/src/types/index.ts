@@ -378,9 +378,20 @@ export interface ApprovalRecommendationResult {
   action_checklist: string[];
 }
 
+export interface ToolExecutionStep {
+  step_number: number;
+  tool_name: string;
+  arguments: Record<string, any>;
+  summary: string;
+  status: "SUCCESS" | "FAILED" | "REJECTED" | string;
+  duration_ms: number;
+}
+
 export interface MultiAgentAnalysisReport {
   invoice_id: number;
   orchestrator_status: "COMPLETED" | "FAILED" | "PARTIAL" | string;
+  orchestration_mode?: "GEMINI_DYNAMIC" | "FALLBACK_RULE_BASED" | string;
+  model_used?: string;
   recommendation: "APPROVE" | "REVIEW" | "REJECT" | string;
   risk_score: string | number;
   risk_category: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
@@ -390,6 +401,7 @@ export interface MultiAgentAnalysisReport {
   fraud_risk: FraudRiskResult;
   approval_recommendation: ApprovalRecommendationResult;
   execution_logs: AgentExecutionLogResponse[];
+  tool_executions?: ToolExecutionStep[];
   unresolved_issues: string[];
   analyzed_at: string;
 }

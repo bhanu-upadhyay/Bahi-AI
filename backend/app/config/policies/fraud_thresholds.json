@@ -1,0 +1,25 @@
+{
+  "version": "1.0.0",
+  "policy_name": "Accounts Payable Fraud & Risk Scoring Thresholds",
+  "last_updated": "2026-11-12",
+  "score_bands": {
+    "LOW": { "min": 0, "max": 29, "action": "NORMAL_ROUTING" },
+    "MEDIUM": { "min": 30, "max": 59, "action": "OFFICER_REVIEW" },
+    "HIGH": { "min": 60, "max": 79, "action": "SUPERVISOR_ESCALATION" },
+    "CRITICAL": { "min": 80, "max": 100, "action": "IMMEDIATE_PAYMENT_HOLD" }
+  },
+  "risk_impact_weights": {
+    "duplicate_file_hash": 50,
+    "normalized_invoice_collision": 45,
+    "unknown_vendor": 35,
+    "inactive_vendor": 30,
+    "missing_bank_details": 25,
+    "overbilling_above_25_pct": 40,
+    "overbilling_above_10_pct": 20,
+    "missing_purchase_order": 20,
+    "missing_goods_receipt": 25,
+    "quantity_exceeds_received": 30,
+    "tax_math_discrepancy": 25,
+    "ocr_confidence_below_70_pct": 15
+  }
+}

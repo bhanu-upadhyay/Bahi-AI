@@ -6,10 +6,11 @@ This document describes the testing strategy, test suite architecture, automated
 
 ## 1. Test Suite Overview
 
-Bahi-AI employs a multi-tiered automated testing suite consisting of **56 Pytest integration and unit tests** covering all phases:
+Bahi-AI employs a multi-tiered automated testing suite consisting of **70 Pytest integration and unit tests** covering all phases:
 
 | Module | Test File | Test Count | Description |
 |---|---|:---:|---|
+| **Gemini Dynamic Orchestration** | `tests/test_gemini_orchestrator.py` | 14 | Provider initialization, API key sanitization, 13 backend tools, Pydantic validation, dynamic trajectory loop, loop detection, 8-call limit cap, prompt injection defense, financial safety guardrails, rule-based fallback, DB audit logging, and live integration |
 | **Security & Auth** | `tests/test_security_audit.py` | 10 | Password verification, JWT validation, RBAC boundaries, path traversal defense, HTTP security headers, and regression invoice #9766 |
 | **ERP & Accounting** | `tests/test_erp_accounting.py` | 10 | Double-entry balancing ($\sum Dr \equiv \sum Cr$), CGST/SGST/IGST tax allocations, penny rounding, reversals, posting eligibility, retry queues, and payment balance tracking |
 | **Multi-Agent Automation** | `tests/test_multi_agent_automation.py` | 8 | Invoice Understanding, Vendor Verification, 3-Way Matching, Fraud & Risk Scoring, Approval Recommendation, and Orchestrator idempotency |
@@ -20,7 +21,7 @@ Bahi-AI employs a multi-tiered automated testing suite consisting of **56 Pytest
 | **Budgets & Depts** | `tests/test_budget.py` | 2 | Department cost centers, fiscal year budget allocations, and utilization tracking |
 | **Authentication Core** | `tests/test_auth.py` | 2 | Argon2 password hashing and JWT token creation |
 | **Workflow & Audit** | `tests/test_workflow.py` | 1 | Multi-level approval queuing, payment registry, and immutable audit logs |
-| **Total** | | **56** | **100% Passed** |
+| **Total** | | **70** | **100% Passed** |
 
 ---
 
@@ -104,3 +105,4 @@ npm run build
 - Compiles all 20 static and dynamic routes.
 - Enforces strict TypeScript 5 and ESLint rules.
 - Validates that zero runtime exceptions occur during page generation.
+

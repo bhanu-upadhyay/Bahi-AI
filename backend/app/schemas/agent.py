@@ -99,9 +99,20 @@ class ApprovalRecommendationResult(BaseModel):
     action_checklist: List[str] = []
 
 
+class ToolExecutionStep(BaseModel):
+    step_number: int
+    tool_name: str
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+    summary: str
+    status: str = "SUCCESS"  # "SUCCESS" | "FAILED" | "REJECTED"
+    duration_ms: float = 0.0
+
+
 class MultiAgentAnalysisReport(BaseModel):
     invoice_id: int
     orchestrator_status: str  # "COMPLETED" | "FAILED" | "PARTIAL"
+    orchestration_mode: str = "GEMINI_DYNAMIC"  # "GEMINI_DYNAMIC" | "FALLBACK_RULE_BASED"
+    model_used: str = "gemini-3.5-flash-lite"
     recommendation: str  # "APPROVE" | "REVIEW" | "REJECT"
     risk_score: Decimal
     risk_category: str  # "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
@@ -111,5 +122,6 @@ class MultiAgentAnalysisReport(BaseModel):
     fraud_risk: FraudRiskResult
     approval_recommendation: ApprovalRecommendationResult
     execution_logs: List[AgentExecutionLogResponse] = []
+    tool_executions: List[ToolExecutionStep] = Field(default_factory=list)
     unresolved_issues: List[str] = []
     analyzed_at: datetime

@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     FRONTEND_URL: str = "http://localhost:3000"
 
+    # LLM & Gemini Orchestration Configuration
+    LLM_PROVIDER: str = "gemini"
+    LLM_MODEL: str = "gemini-3.5-flash-lite"
+    LLM_API_KEY: str = ""
+    LLM_TIMEOUT: float = 30.0
+    LLM_MAX_TOKENS: int = 2048
+    LLM_FALLBACK_ENABLED: bool = True
+
     model_config = SettingsConfigDict(
         env_file=(_ENV_FILE, ".env"),
         env_file_encoding="utf-8",

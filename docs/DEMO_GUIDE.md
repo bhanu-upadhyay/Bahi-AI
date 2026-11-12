@@ -129,3 +129,4 @@ You can sign in via `/login` or use the role switcher in the top-right header:
 ### Step 15: System Audit Trail
 - Navigate to `/audit`
 - Demonstrate the immutable, append-only audit trail logging every user login, OCR run, agent evaluation, human approval decision, ERP posting, and simulated settlement.
+
