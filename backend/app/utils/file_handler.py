@@ -126,17 +126,25 @@ def save_uploaded_file(content: bytes, original_filename: str) -> Tuple[str, str
 
 
 def get_absolute_file_path(relative_path: str) -> Path:
-    """Safely resolves document path within uploads directory."""
+    """Safely resolves document path within the uploads directory.
+    Strictly prevents directory traversal and unauthorized filesystem access.
+    """
     if not relative_path:
         raise FileNotFoundError("Empty document path provided.")
 
     backend_dir = Path(__file__).resolve().parent.parent.parent
+    uploads_dir = (backend_dir / "uploads").resolve()
+
+    # Reject explicit path traversal attempts
+    if ".." in relative_path or "\x00" in relative_path:
+        raise PermissionError("Path traversal sequence detected in document path.")
+
     clean_path = Path(relative_path.lstrip("/"))
     abs_path = (backend_dir / clean_path).resolve()
 
-    # Safety check: must reside inside backend directory
-    if not str(abs_path).startswith(str(backend_dir.resolve())):
-        raise PermissionError("Access to path outside backend is denied.")
+    # Safety check: must reside strictly inside uploads directory
+    if not str(abs_path).startswith(str(uploads_dir)):
+        raise PermissionError("Access denied: Target document path lies outside designated uploads directory.")
 
     if not abs_path.exists() or not abs_path.is_file():
         raise FileNotFoundError(f"Document file not found at {abs_path}")

@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.dependencies import FINANCE_ROLES, require_roles
 from app.models.audit_log import AuditLog
 from app.models.invoice import Invoice
 from app.models.payment import Payment
+from app.models.user import User
 from app.schemas.erp import (
     InvoicePaymentBalanceResponse,
     PaymentPreparationRequest,
@@ -102,8 +104,11 @@ def get_invoice_payment_balance(invoice_id: int, db: Session = Depends(get_db)):
 def prepare_payment(
     req: PaymentPreparationRequest,
     db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(require_roles(*FINANCE_ROLES)),
 ):
-    """Prepares and schedules a partial or full payment with balance verification."""
+    """Prepares and schedules a partial or full payment with balance verification.
+    Protected by RBAC: only authorized finance administrators and officers may schedule disbursements.
+    """
     invoice = db.query(Invoice).filter(Invoice.id == req.invoice_id).first()
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
@@ -218,8 +223,14 @@ def schedule_payment(payment_in: PaymentCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/{payment_id}/simulate", response_model=PaymentResponse)
-def simulate_payment_settlement(payment_id: int, db: Session = Depends(get_db)):
-    """Simulate mock payment settlement and bank confirmation."""
+def simulate_payment_settlement(
+    payment_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(require_roles(*FINANCE_ROLES)),
+):
+    """Simulate mock payment settlement and bank confirmation.
+    Protected by RBAC: only authorized finance administrators and officers may simulate settlement.
+    """
     payment = db.query(Payment).filter(Payment.id == payment_id).first()
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")

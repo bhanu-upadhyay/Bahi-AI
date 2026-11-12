@@ -4,8 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
+from app.core.dependencies import FINANCE_ROLES, require_roles
 from app.models.erp_posting import ERPPosting, ERPSyncLog
 from app.models.invoice import Invoice
+from app.models.user import User
 from app.schemas.erp import (
     ERPConnectionStatusResponse,
     ERPPostingRequest,
@@ -72,10 +74,12 @@ def post_invoice_to_erp(
     invoice_id: int,
     payload: Optional[ERPPostingRequest] = None,
     db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(require_roles(*FINANCE_ROLES)),
 ):
     """Executes the complete ERP posting workflow: verifies eligibility,
     generates a balanced double-entry journal entry, dispatches to Mock ERP,
     records ERP document reference, and logs audit entries.
+    Protected by RBAC: only authorized finance administrators and officers may post.
     """
     service = PostingService()
     req = payload or ERPPostingRequest()

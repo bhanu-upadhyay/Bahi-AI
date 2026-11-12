@@ -9,9 +9,11 @@ import {
   ChevronDown,
   ShieldCheck,
   Building,
+  GraduationCap,
 } from "lucide-react";
 import { api } from "@/services/api";
 import { User } from "@/types";
+import { DemoGuideModal } from "@/components/ui/DemoGuideModal";
 
 export const Header: React.FC = () => {
   const pathname = usePathname();
@@ -19,6 +21,7 @@ export const Header: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const [showDemoGuide, setShowDemoGuide] = useState(false);
 
   useEffect(() => {
     // Fetch active fraud alerts count
@@ -83,6 +86,16 @@ export const Header: React.FC = () => {
           <Building className="h-3.5 w-3.5 text-slate-500" />
           <span>Central Campus Accounts</span>
         </div>
+
+        {/* Demo Guide Button */}
+        <button
+          onClick={() => setShowDemoGuide(true)}
+          className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-sky-50 border border-sky-200 text-sky-800 text-xs font-semibold hover:bg-sky-100 transition shadow-sm"
+          title="Open University Evaluator Demonstration Guide"
+        >
+          <GraduationCap className="h-4 w-4 text-sky-600" />
+          <span>Demo Guide</span>
+        </button>
 
         {/* Notifications / Exception Bell */}
         <a
@@ -155,6 +168,8 @@ export const Header: React.FC = () => {
           )}
         </div>
       </div>
+
+      <DemoGuideModal isOpen={showDemoGuide} onClose={() => setShowDemoGuide(false)} />
     </header>
   );
 };

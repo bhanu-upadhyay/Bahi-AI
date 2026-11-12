@@ -30,6 +30,11 @@ dist/
 backend/uploads/
 backend/app/uploads/
 
+# Backups and database dumps
+backups/
+*.sql
+*.dump
+
 # Local databases and temporary files
 *.sqlite3
 *.db

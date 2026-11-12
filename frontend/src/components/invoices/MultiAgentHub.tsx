@@ -31,6 +31,15 @@ import {
 } from "@/types";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 
+const formatConfidence = (val: number | string | undefined | null): string => {
+  if (val === undefined || val === null) return "0%";
+  const n = typeof val === "string" ? parseFloat(val) : Number(val);
+  if (isNaN(n)) return "0%";
+  // If stored as a fraction <= 1.0 (e.g. 0.88), scale to percentage (88%)
+  const pct = n <= 1.0 && n > 0 ? n * 100 : n;
+  return `${Math.round(pct)}%`;
+};
+
 interface MultiAgentHubProps {
   invoice: Invoice;
   onInvoiceUpdated?: () => void;
@@ -255,7 +264,7 @@ export const MultiAgentHub: React.FC<MultiAgentHubProps> = ({
                     </span>
                     <h4 className="text-sm font-bold tracking-tight">{badgeInfo.title}</h4>
                     <span className="text-[11px] font-semibold opacity-75">
-                      • Confidence: {Number(analysis.approval_recommendation?.confidence || 0)}%
+                      • Confidence: {formatConfidence(analysis.approval_recommendation?.confidence)}
                     </span>
                   </div>
                   <p className="text-xs mt-1 leading-relaxed opacity-90 max-w-3xl">
@@ -376,7 +385,7 @@ export const MultiAgentHub: React.FC<MultiAgentHubProps> = ({
                     <div className="flex items-center justify-between">
                       <span className="text-slate-500">Extraction Confidence:</span>
                       <span className="font-mono font-bold text-slate-800">
-                        {Number(analysis.understanding?.confidence_score || 0)}%
+                        {formatConfidence(analysis.understanding?.confidence_score)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">

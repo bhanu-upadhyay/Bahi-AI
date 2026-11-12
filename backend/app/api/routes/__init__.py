@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.routes.dashboard import router as dashboard_router
+from app.api.routes.auth import router as auth_router
 from app.api.routes.invoices import router as invoices_router
 from app.api.routes.departments import router as departments_router
 from app.api.routes.vendors import router as vendors_router
@@ -18,6 +19,7 @@ from app.api.routes.ledger import router as ledger_router
 
 api_router = APIRouter(prefix="/api/v1")
 
+api_router.include_router(auth_router)
 api_router.include_router(dashboard_router)
 api_router.include_router(invoices_router)
 api_router.include_router(departments_router)

@@ -58,10 +58,10 @@ const navSections: { title?: string; items: NavItem[] }[] = [
   {
     title: "Governance & Intelligence",
     items: [
-      { name: "ERP Ledger", href: "/ledger", icon: BookOpen, isPhase2: true },
-      { name: "Reports", href: "/reports", icon: BarChart3, isPhase2: true },
+      { name: "ERP Ledger", href: "/ledger", icon: BookOpen },
+      { name: "Reports", href: "/reports", icon: BarChart3 },
       { name: "Audit Logs", href: "/audit", icon: History },
-      { name: "Settings", href: "/settings", icon: Settings, isPhase2: true },
+      { name: "Settings", href: "/settings", icon: Settings },
     ],
   },
 ];
@@ -133,9 +133,9 @@ export const Sidebar: React.FC = () => {
                       />
                       <span>{item.name}</span>
                     </div>
-                    {item.isPhase2 && (
-                      <span className="text-[9px] font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                        Phase 2
+                    {item.badge && (
+                      <span className="text-[9px] font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded bg-sky-950 text-sky-400 border border-sky-800">
+                        {item.badge}
                       </span>
                     )}
                   </Link>

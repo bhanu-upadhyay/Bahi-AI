@@ -4,8 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
+from app.core.dependencies import APPROVAL_ROLES, require_roles
 from app.models.approval import Approval
 from app.models.invoice import Invoice
+from app.models.user import User
 from app.models.audit_log import AuditLog
 from app.schemas.approval import ApprovalAction, ApprovalResponse
 
@@ -35,8 +37,11 @@ def act_on_approval(
     approval_id: int,
     action: ApprovalAction,
     db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(require_roles(*APPROVAL_ROLES)),
 ):
-    """Perform approval or rejection on an approval workflow task."""
+    """Perform approval or rejection on an approval workflow task.
+    Protected by RBAC: only authorized finance officers and HODs may decide.
+    """
     approval = db.query(Approval).filter(Approval.id == approval_id).first()
     if not approval:
         raise HTTPException(status_code=404, detail="Approval task not found")
@@ -49,7 +54,9 @@ def act_on_approval(
     approval.status = new_status
     approval.comments = action.comments or approval.comments
     approval.decided_at = datetime.now(timezone.utc)
-    if action.approver_id:
+    if current_user:
+        approval.approver_id = current_user.id
+    elif action.approver_id:
         approval.approver_id = action.approver_id
 
     # If rejected, set invoice approval_status to REJECTED
