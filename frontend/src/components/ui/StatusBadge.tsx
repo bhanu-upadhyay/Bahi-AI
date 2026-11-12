@@ -78,7 +78,11 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
     switch (s) {
       case "PAID":
       case "COMPLETED":
+      case "SETTLED":
         styles = "bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold";
+        break;
+      case "PARTIAL":
+        styles = "bg-sky-50 text-sky-800 border-sky-200 font-semibold";
         break;
       case "SCHEDULED":
         styles = "bg-purple-50 text-purple-700 border-purple-200";

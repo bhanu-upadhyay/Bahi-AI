@@ -27,6 +27,8 @@ if TYPE_CHECKING:
     from app.models.payment import Payment
     from app.models.fraud_alert import FraudAlert
     from app.models.agent_execution_log import AgentExecutionLog
+    from app.models.journal_entry import JournalEntry
+    from app.models.erp_posting import ERPPosting
 
 
 def normalize_invoice_number(num: str) -> str:
@@ -113,6 +115,12 @@ class Invoice(Base):
     )
     execution_logs: Mapped[List["AgentExecutionLog"]] = relationship(
         "AgentExecutionLog", back_populates="invoice", cascade="all, delete-orphan"
+    )
+    journal_entries: Mapped[List["JournalEntry"]] = relationship(
+        "JournalEntry", back_populates="invoice"
+    )
+    erp_posting: Mapped[Optional["ERPPosting"]] = relationship(
+        "ERPPosting", back_populates="invoice", uselist=False
     )
 
 

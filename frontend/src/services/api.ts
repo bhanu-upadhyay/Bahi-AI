@@ -16,6 +16,17 @@ import {
   User,
   MultiAgentAnalysisReport,
   AgentExecutionLogResponse,
+  ChartOfAccount,
+  AccountMapping,
+  JournalEntry,
+  TrialBalanceResponse,
+  PostingEligibilityResponse,
+  ERPPosting,
+  ERPSyncLog,
+  ERPConnectionStatus,
+  InvoicePaymentBalance,
+  PaymentPreparationRequest,
+  PaymentPreparationResponse,
 } from "../types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
@@ -198,5 +209,104 @@ export const api = {
   retryAgentAnalysis: (id: number): Promise<MultiAgentAnalysisReport> =>
     fetchJson<MultiAgentAnalysisReport>(`/agents/retry/${id}`, {
       method: "POST",
+    }),
+
+  // Phase 4: ERP Integration & Accounting
+  getERPStatus: (): Promise<ERPConnectionStatus> =>
+    fetchJson<ERPConnectionStatus>("/erp/status"),
+
+  getERPConfig: (): Promise<any> =>
+    fetchJson<any>("/erp/config"),
+
+  getPostingEligibility: (invoiceId: number): Promise<PostingEligibilityResponse> =>
+    fetchJson<PostingEligibilityResponse>(`/erp/eligibility/${invoiceId}`),
+
+  postInvoiceToERP: (
+    invoiceId: number,
+    options?: { idempotency_key?: string; simulate_failure?: boolean; comments?: string }
+  ): Promise<ERPPosting> =>
+    fetchJson<ERPPosting>(`/erp/post/${invoiceId}`, {
+      method: "POST",
+      body: JSON.stringify(options || {}),
+    }),
+
+  getInvoiceERPPosting: (invoiceId: number): Promise<ERPPosting> =>
+    fetchJson<ERPPosting>(`/erp/posting/${invoiceId}`),
+
+  getERPHistory: (status?: string): Promise<ERPPosting[]> => {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+    return fetchJson<ERPPosting[]>(`/erp/history${qs}`);
+  },
+
+  getSyncQueue: (): Promise<ERPPosting[]> =>
+    fetchJson<ERPPosting[]>("/erp/sync/queue"),
+
+  retrySync: (postingId: number): Promise<ERPPosting> =>
+    fetchJson<ERPPosting>(`/erp/sync/retry/${postingId}`, {
+      method: "POST",
+    }),
+
+  getSyncLogs: (limit: number = 50): Promise<ERPSyncLog[]> =>
+    fetchJson<ERPSyncLog[]>(`/erp/sync/logs?limit=${limit}`),
+
+  // Ledger & Chart of Accounts
+  getChartOfAccounts: (type?: string): Promise<ChartOfAccount[]> => {
+    const qs = type ? `?account_type=${encodeURIComponent(type)}` : "";
+    return fetchJson<ChartOfAccount[]>(`/ledger/accounts${qs}`);
+  },
+
+  createChartOfAccount: (data: Partial<ChartOfAccount>): Promise<ChartOfAccount> =>
+    fetchJson<ChartOfAccount>("/ledger/accounts", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getAccountMappings: (): Promise<AccountMapping[]> =>
+    fetchJson<AccountMapping[]>("/ledger/mappings"),
+
+  createAccountMapping: (data: Partial<AccountMapping>): Promise<AccountMapping> =>
+    fetchJson<AccountMapping>("/ledger/mappings", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  updateAccountMapping: (id: number, data: Partial<AccountMapping>): Promise<AccountMapping> =>
+    fetchJson<AccountMapping>(`/ledger/mappings/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  getJournalEntries: (params?: { status?: string; period?: string; invoice_id?: number }): Promise<JournalEntry[]> => {
+    const query = new URLSearchParams();
+    if (params?.status) query.append("status", params.status);
+    if (params?.period) query.append("period", params.period);
+    if (params?.invoice_id) query.append("invoice_id", params.invoice_id.toString());
+    const qs = query.toString() ? `?${query.toString()}` : "";
+    return fetchJson<JournalEntry[]>(`/ledger/journal-entries${qs}`);
+  },
+
+  getJournalEntryById: (id: number): Promise<JournalEntry> =>
+    fetchJson<JournalEntry>(`/ledger/journal-entries/${id}`),
+
+  reverseJournalEntry: (id: number, reason?: string): Promise<JournalEntry> => {
+    const qs = reason ? `?reason=${encodeURIComponent(reason)}` : "";
+    return fetchJson<JournalEntry>(`/ledger/journal-entries/${id}/reverse${qs}`, {
+      method: "POST",
+    });
+  },
+
+  getTrialBalance: (period?: string): Promise<TrialBalanceResponse> => {
+    const qs = period ? `?period=${encodeURIComponent(period)}` : "";
+    return fetchJson<TrialBalanceResponse>(`/ledger/trial-balance${qs}`);
+  },
+
+  // Payment Extensions
+  getInvoicePaymentBalance: (invoiceId: number): Promise<InvoicePaymentBalance> =>
+    fetchJson<InvoicePaymentBalance>(`/payments/invoice/${invoiceId}/balance`),
+
+  preparePayment: (data: PaymentPreparationRequest): Promise<PaymentPreparationResponse> =>
+    fetchJson<PaymentPreparationResponse>("/payments/prepare", {
+      method: "POST",
+      body: JSON.stringify(data),
     }),
 };

@@ -13,6 +13,8 @@ from app.api.routes.fraud import router as fraud_router
 from app.api.routes.audit import router as audit_router
 from app.api.routes.users import router as users_router
 from app.api.routes.agents import router as agents_router
+from app.api.routes.erp import router as erp_router
+from app.api.routes.ledger import router as ledger_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -29,6 +31,8 @@ api_router.include_router(fraud_router)
 api_router.include_router(audit_router)
 api_router.include_router(users_router)
 api_router.include_router(agents_router)
+api_router.include_router(erp_router)
+api_router.include_router(ledger_router)
 
 __all__ = ["api_router"]
 

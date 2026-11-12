@@ -776,3 +776,31 @@ def get_invoice_agent_execution_logs(invoice_id: int, db: Session = Depends(get_
         .order_by(AgentExecutionLog.created_at.desc())
         .all()
     )
+
+
+@router.get("/{invoice_id}/eligibility")
+def get_invoice_erp_eligibility(invoice_id: int, db: Session = Depends(get_db)):
+    """Convenience route to check ERP posting eligibility for this invoice."""
+    from app.services.erp.posting_service import PostingService
+    return PostingService().check_eligibility(invoice_id=invoice_id, db=db)
+
+
+@router.post("/{invoice_id}/post-erp")
+def post_invoice_erp_convenience(
+    invoice_id: int,
+    simulate_failure: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    """Convenience route to trigger ERP posting for an approved invoice."""
+    from app.services.erp.posting_service import PostingService
+    return PostingService().post_invoice_to_erp(invoice_id=invoice_id, db=db, simulate_failure=simulate_failure)
+
+
+@router.get("/{invoice_id}/posting")
+def get_invoice_erp_posting_convenience(invoice_id: int, db: Session = Depends(get_db)):
+    """Convenience route to get ERP posting details for an invoice."""
+    from app.models.erp_posting import ERPPosting
+    posting = db.query(ERPPosting).filter(ERPPosting.invoice_id == invoice_id).first()
+    if not posting:
+        raise HTTPException(status_code=404, detail="No ERP posting record found for this invoice.")
+    return posting

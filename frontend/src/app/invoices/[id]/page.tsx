@@ -30,6 +30,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Skeleton } from "@/components/ui/LoadingSkeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { MultiAgentHub } from "@/components/invoices/MultiAgentHub";
+import { ERPPostingPanel } from "@/components/invoices/ERPPostingPanel";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 
 export default function InvoiceDetailPage() {
@@ -350,6 +351,9 @@ export default function InvoiceDetailPage() {
 
       {/* Multi-Agent AI Automation Hub */}
       <MultiAgentHub invoice={invoice} onInvoiceUpdated={loadData} />
+
+      {/* Phase 4: ERP Integration & Accounting Posting Panel */}
+      <ERPPostingPanel invoice={invoice} onInvoiceUpdated={loadData} />
 
       {/* Human Review & Field Correction Panel */}
       {isReviewable && (

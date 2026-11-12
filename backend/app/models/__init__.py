@@ -11,6 +11,10 @@ from app.models.payment import Payment
 from app.models.fraud_alert import FraudAlert
 from app.models.audit_log import AuditLog
 from app.models.agent_execution_log import AgentExecutionLog
+from app.models.chart_of_account import ChartOfAccount
+from app.models.account_mapping import AccountMapping
+from app.models.journal_entry import JournalEntry, JournalEntryLine
+from app.models.erp_posting import ERPPosting, ERPSyncLog
 
 __all__ = [
     "Base",
@@ -31,5 +35,11 @@ __all__ = [
     "FraudAlert",
     "AuditLog",
     "AgentExecutionLog",
+    "ChartOfAccount",
+    "AccountMapping",
+    "JournalEntry",
+    "JournalEntryLine",
+    "ERPPosting",
+    "ERPSyncLog",
 ]
 
