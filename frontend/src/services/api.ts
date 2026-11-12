@@ -14,6 +14,8 @@ import {
   FraudAlert,
   AuditLog,
   User,
+  MultiAgentAnalysisReport,
+  AgentExecutionLogResponse,
 } from "../types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
@@ -180,4 +182,21 @@ export const api = {
 
   // Users
   getUsers: (): Promise<User[]> => fetchJson<User[]>("/users"),
+
+  // Phase 3: Multi-Agent AI Automation
+  analyzeInvoice: (id: number): Promise<MultiAgentAnalysisReport> =>
+    fetchJson<MultiAgentAnalysisReport>(`/invoices/${id}/analyze`, {
+      method: "POST",
+    }),
+
+  getInvoiceAnalysis: (id: number): Promise<MultiAgentAnalysisReport | null> =>
+    fetchJson<MultiAgentAnalysisReport | null>(`/invoices/${id}/analysis`),
+
+  getAgentLogs: (id: number): Promise<AgentExecutionLogResponse[]> =>
+    fetchJson<AgentExecutionLogResponse[]>(`/invoices/${id}/agent-logs`),
+
+  retryAgentAnalysis: (id: number): Promise<MultiAgentAnalysisReport> =>
+    fetchJson<MultiAgentAnalysisReport>(`/agents/retry/${id}`, {
+      method: "POST",
+    }),
 };

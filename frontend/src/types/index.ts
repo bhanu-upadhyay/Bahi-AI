@@ -280,3 +280,116 @@ export interface AuditLog {
   created_at: string;
   user?: User;
 }
+
+// ==========================================
+// Phase 3: Multi-Agent AI Automation Types
+// ==========================================
+
+export interface AgentExecutionLogResponse {
+  id: number;
+  invoice_id?: number | null;
+  agent_name: string;
+  execution_status: string;
+  input_summary?: string | null;
+  output_summary?: string | null;
+  error_message?: string | null;
+  execution_duration?: string | number | null;
+  created_at: string;
+}
+
+export interface InvoiceUnderstandingResult {
+  agent_name: string;
+  status: "PASSED" | "WARNING" | "FAILED" | string;
+  confidence_score: string | number;
+  tax_type: string;
+  math_reconciled: boolean;
+  discrepancy_amount: string | number;
+  missing_fields: string[];
+  abnormalities: string[];
+  summary: string;
+  details?: Record<string, any>;
+}
+
+export interface VendorVerificationResult {
+  agent_name: string;
+  status: "VERIFIED" | "UNKNOWN_VENDOR" | "GSTIN_MISMATCH" | "INACTIVE_VENDOR" | "NAME_MISMATCH" | string;
+  vendor_id?: number | null;
+  vendor_code?: string | null;
+  legal_name?: string | null;
+  invoice_vendor_name?: string | null;
+  invoice_gstin?: string | null;
+  registered_gstin?: string | null;
+  gstin_matched: boolean;
+  is_active: boolean;
+  has_bank_details: boolean;
+  summary: string;
+  reasons: string[];
+}
+
+export interface LineItemMatch {
+  line_number: number;
+  description: string;
+  po_quantity?: string | number | null;
+  grn_accepted_quantity?: string | number | null;
+  invoice_quantity: string | number;
+  po_unit_price?: string | number | null;
+  invoice_unit_price: string | number;
+  price_variance: string | number;
+  quantity_variance: string | number;
+  status: "MATCHED" | "PRICE_VARIANCE" | "QUANTITY_VARIANCE" | "UNMATCHED" | string;
+}
+
+export interface ThreeWayMatchingResult {
+  agent_name: string;
+  match_status: "FULL_MATCH" | "PARTIAL_MATCH" | "PRICE_VARIANCE" | "QUANTITY_VARIANCE" | "NO_PO" | "NO_GRN" | "DISCREPANCY" | string;
+  po_number?: string | null;
+  po_total?: string | number | null;
+  invoice_total?: string | number | null;
+  total_variance: string | number;
+  grn_numbers: string[];
+  line_matches: LineItemMatch[];
+  discrepancies: string[];
+  summary: string;
+}
+
+export interface RiskFactor {
+  factor: string;
+  score_impact: number;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  description: string;
+}
+
+export interface FraudRiskResult {
+  agent_name: string;
+  risk_score: string | number;
+  risk_category: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  risk_factors: RiskFactor[];
+  recommended_action: string;
+  summary: string;
+}
+
+export interface ApprovalRecommendationResult {
+  agent_name: string;
+  recommendation: "APPROVE" | "REVIEW" | "REJECT" | string;
+  confidence: string | number;
+  executive_summary: string;
+  key_reasons: string[];
+  unresolved_issues: string[];
+  action_checklist: string[];
+}
+
+export interface MultiAgentAnalysisReport {
+  invoice_id: number;
+  orchestrator_status: "COMPLETED" | "FAILED" | "PARTIAL" | string;
+  recommendation: "APPROVE" | "REVIEW" | "REJECT" | string;
+  risk_score: string | number;
+  risk_category: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  understanding: InvoiceUnderstandingResult;
+  vendor_verification: VendorVerificationResult;
+  matching: ThreeWayMatchingResult;
+  fraud_risk: FraudRiskResult;
+  approval_recommendation: ApprovalRecommendationResult;
+  execution_logs: AgentExecutionLogResponse[];
+  unresolved_issues: string[];
+  analyzed_at: string;
+}

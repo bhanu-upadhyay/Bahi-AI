@@ -36,6 +36,17 @@ from app.schemas.payment import PaymentBase, PaymentCreate, PaymentUpdate, Payme
 from app.schemas.fraud_alert import FraudAlertBase, FraudAlertResponse, FraudAlertResolve
 from app.schemas.audit_log import AuditLogBase, AuditLogCreate, AuditLogResponse
 from app.schemas.dashboard import DashboardSummaryResponse, DepartmentBudgetSummary
+from app.schemas.agent import (
+    AgentExecutionLogResponse,
+    InvoiceUnderstandingResult,
+    VendorVerificationResult,
+    LineItemMatch,
+    ThreeWayMatchingResult,
+    RiskFactor,
+    FraudRiskResult,
+    ApprovalRecommendationResult,
+    MultiAgentAnalysisReport,
+)
 
 __all__ = [
     "DepartmentBase",
@@ -94,4 +105,13 @@ __all__ = [
     "AuditLogResponse",
     "DashboardSummaryResponse",
     "DepartmentBudgetSummary",
+    "AgentExecutionLogResponse",
+    "InvoiceUnderstandingResult",
+    "VendorVerificationResult",
+    "LineItemMatch",
+    "ThreeWayMatchingResult",
+    "RiskFactor",
+    "FraudRiskResult",
+    "ApprovalRecommendationResult",
+    "MultiAgentAnalysisReport",
 ]

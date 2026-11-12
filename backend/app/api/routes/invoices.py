@@ -28,6 +28,10 @@ from app.schemas.invoice import (
     InvoiceUploadResponse,
     InvoiceValidationResponse,
 )
+from app.schemas.agent import (
+    MultiAgentAnalysisReport,
+    AgentExecutionLogResponse,
+)
 from app.utils.file_handler import (
     FileValidationError,
     get_absolute_file_path,
@@ -729,3 +733,46 @@ def update_invoice(invoice_id: int, invoice_update: InvoiceUpdate, db: Session =
     db.commit()
     db.refresh(invoice)
     return invoice
+
+
+@router.post("/{invoice_id}/analyze", response_model=MultiAgentAnalysisReport)
+def analyze_invoice_agents(invoice_id: int, db: Session = Depends(get_db)):
+    """Triggers complete 5-agent AI intelligence pipeline for this invoice."""
+    from app.services.agents.orchestrator import AgentOrchestrator
+    orchestrator = AgentOrchestrator()
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    try:
+        return orchestrator.analyze_invoice(invoice_id=invoice_id, db=db, force_reanalyze=True)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{invoice_id}/analysis", response_model=MultiAgentAnalysisReport)
+def get_invoice_agent_analysis(invoice_id: int, db: Session = Depends(get_db)):
+    """Retrieves or computes the consolidated multi-agent report for this invoice."""
+    from app.services.agents.orchestrator import AgentOrchestrator
+    orchestrator = AgentOrchestrator()
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    report = orchestrator.get_latest_analysis(invoice_id=invoice_id, db=db)
+    if not report:
+        report = orchestrator.analyze_invoice(invoice_id=invoice_id, db=db)
+    return report
+
+
+@router.get("/{invoice_id}/agent-logs", response_model=List[AgentExecutionLogResponse])
+def get_invoice_agent_execution_logs(invoice_id: int, db: Session = Depends(get_db)):
+    """Retrieves all agent execution records for this invoice."""
+    from app.models.agent_execution_log import AgentExecutionLog
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return (
+        db.query(AgentExecutionLog)
+        .filter(AgentExecutionLog.invoice_id == invoice_id)
+        .order_by(AgentExecutionLog.created_at.desc())
+        .all()
+    )

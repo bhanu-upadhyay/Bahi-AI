@@ -29,6 +29,7 @@ import { Invoice, Vendor, Department, PurchaseOrder } from "@/types";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Skeleton } from "@/components/ui/LoadingSkeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { MultiAgentHub } from "@/components/invoices/MultiAgentHub";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 
 export default function InvoiceDetailPage() {
@@ -346,6 +347,9 @@ export default function InvoiceDetailPage() {
           <span>{validationError}</span>
         </div>
       )}
+
+      {/* Multi-Agent AI Automation Hub */}
+      <MultiAgentHub invoice={invoice} onInvoiceUpdated={loadData} />
 
       {/* Human Review & Field Correction Panel */}
       {isReviewable && (
