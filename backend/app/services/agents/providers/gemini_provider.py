@@ -140,3 +140,4 @@ class GeminiProvider(BaseLLMProvider):
             safe_msg = self._sanitize_error(e)
             logger.error(f"[GeminiProvider] Error during generate_step: {safe_msg}")
             raise RuntimeError(f"Gemini generation error: {safe_msg}")
+

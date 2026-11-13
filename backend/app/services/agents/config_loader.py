@@ -110,3 +110,4 @@ def get_tax_rules() -> TaxRulesConfig:
 def get_department_budget_rules() -> BudgetRulesConfig:
     data = _read_json_file("department_budget_rules.json")
     return BudgetRulesConfig.model_validate(data)
+
