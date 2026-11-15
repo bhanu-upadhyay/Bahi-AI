@@ -1,3 +1,26 @@
+# Bahi-AI — Final Project Submission
+
+> **Important: For the latest and complete implementation, please refer to the `phase-5-final-polish` branch.**
+
+**Final Submission Branch:** `phase-5-final-polish`
+
+**Repository:** https://github.com/bhanu-upadhyay/Bahi-AI
+
+The `main` branch contains an earlier development version. The `phase-5-final-polish` branch contains the latest project implementation and final buildathon submission.
+
+---
+
+## Project Documentation
+
+- 📄 **[Technical Project Sheet (PDF)](docs/Bahi_AI_Technical_Project_Sheet_PS09.pdf)** — Official technical overview, implementation evidence, and system architecture sheet for JKLU AI Buildathon 1.0 (Problem Statement PS-09).
+- 📘 **[Architecture Guide](docs/ARCHITECTURE.md)** — System architecture, component boundaries, and data flow.
+- 🎓 **[University Demonstration Guide](docs/DEMO_GUIDE.md)** — Step-by-step evaluator demonstration walkthrough.
+- 📊 **[JKLU Dataset Integration Guide](docs/JKLU_DATASET_INTEGRATION_GUIDE.md)** — Demonstration dataset, scenario expectations, and importer safety guide.
+- 🧪 **[Testing & Validation Guide](docs/TESTING.md)** — Comprehensive test suite specifications and test database isolation.
+- 🔒 **[Security Audit & Threat Model](docs/SECURITY_AUDIT.md)** — Financial safety guardrails, RBAC enforcement, and vulnerability analysis.
+
+---
+
 # Bahi-AI — Intelligent Accounts Payable & Vendor Invoice Automation Agent
 
 **Bahi-AI** is an AI-powered Accounts Payable (AP) and Vendor Invoice Automation platform engineered specifically for university financial operations and procurement departments. It automates invoice intake, OCR document extraction, 3-way matching against Purchase Orders (PO) and Goods Receipt Notes (GRN), fraud/risk analysis, departmental budget tracking, multi-level approval workflows, and balanced double-entry General Ledger ERP posting with human-in-the-loop governance.
@@ -34,7 +57,7 @@ University accounts payable departments face significant operational challenges:
 - **AI & LLM Orchestration:** Google GenAI Python SDK (`google-genai==1.47.0`), Gemini 3.5 Flash-Lite (`gemini-3.5-flash-lite`), Dynamic Tool Calling Orchestration (13 registered tools), JSON-based policy engine
 - **Validation:** Pydantic v2
 - **Authentication & Security:** Argon2id (`pwdlib`), PyJWT (HS256)
-- **Testing:** Pytest & FastAPI TestClient (70 automated tests)
+- **Testing:** Pytest & FastAPI TestClient (106 automated tests)
 
 ### Frontend
 - **Framework:** Next.js 15 (App Router, Server & Client Components)
@@ -98,10 +121,14 @@ Bahi-AI/
 ├── docker-compose.yml            # PostgreSQL 16 container definition (Port 5434)
 ├── README.md                     # Main project documentation
 ├── docs/                         # Detailed technical documentation
+│   ├── Bahi_AI_Technical_Project_Sheet_PS09.pdf # Official Technical Project Sheet (PS-09)
 │   ├── ARCHITECTURE.md           # Architecture, component boundaries, and data flow
 │   ├── DEMO_GUIDE.md             # Step-by-step 15-step university demonstration guide
+│   ├── JKLU_DATASET_INTEGRATION_GUIDE.md # Demonstration dataset and importer safety guide
 │   ├── SECURITY_AUDIT.md         # Vulnerability analysis, fixes, and threat model
 │   └── TESTING.md                # Automated test suite coverage and execution guide
+├── data/                         # Synthetic JKLU Demonstration AP Dataset
+│   └── jklu/                     # 15 scenario invoices, manifest, Excel dataset, and generator
 ├── backend/                      # FastAPI Python Backend
 │   ├── alembic/                  # Database migration scripts
 │   ├── app/
@@ -109,13 +136,14 @@ Bahi-AI/
 │   │   ├── core/                 # Config, database session, security, and RBAC dependencies
 │   │   ├── models/               # SQLAlchemy 2.0 ORM database models
 │   │   ├── schemas/              # Pydantic v2 schemas
+│   │   ├── scripts/              # Dataset importer with strict demo database safety guard
 │   │   ├── services/             # Core business logic services
-│   │   │   ├── agents/           # 5 Specialized AI agents and Orchestrator
+│   │   │   ├── agents/           # 5 Specialized AI agents, Gemini dynamic loop, and AP tools
 │   │   │   ├── erp/              # Accounting engine, posting service, sync queue, adapters
 │   │   │   ├── extraction_service.py # OCR parsing and GST field extraction
 │   │   │   └── ocr_service.py    # PyMuPDF and Tesseract document extraction
 │   │   └── utils/file_handler.py # Upload validation and path-traversal sandboxing
-│   ├── tests/                    # 56 Pytest integration & unit tests
+│   ├── tests/                    # 106 Pytest integration, unit, and calculation tests
 │   └── requirements.txt          # Python dependencies
 └── frontend/                     # Next.js 15 TypeScript Frontend
     ├── src/
@@ -213,7 +241,7 @@ An interactive in-app **Demo Guide** is accessible via the top-right header butt
 
 ## 7. Testing & Build Verification
 
-The test suite contains **56 automated integration and unit tests**:
+The test suite contains **106 automated integration and unit tests**:
 ```bash
 # Run complete backend test suite
 cd backend
