@@ -23,6 +23,9 @@ def clean_amount(val_str: Optional[str]) -> Optional[Decimal]:
     if not val_str or "%" in val_str or "percent" in val_str.lower():
         return None
 
+    # Remove currency prefix with dots (e.g. Rs., Re.) so dot is not treated as decimal
+    val_str = re.sub(r"(?i)\b(?:rs|re)\.\s*", "", val_str)
+
     # Remove currency symbols ($, €, £, ₹, Rs., etc.) and whitespace
     clean = re.sub(r"[^\d.,-]", "", val_str).strip()
     if not clean or clean == "-" or clean == ".":
@@ -46,6 +49,13 @@ def clean_amount(val_str: Optional[str]) -> Optional[Decimal]:
             clean = clean.replace(",", ".")
         else:
             clean = clean.replace(",", "")
+    elif clean.count(".") > 1:
+        # Multiple dots without comma, e.g. OCR mistaken comma for dot: 7.560.00 or 1.234.567.89
+        last_dot_idx = clean.rfind(".")
+        if len(clean) - last_dot_idx - 1 == 2:
+            clean = clean[:last_dot_idx].replace(".", "") + clean[last_dot_idx:]
+        else:
+            clean = clean.replace(".", "")
 
     try:
         dec = Decimal(clean)
@@ -122,7 +132,56 @@ def extract_currency(text: str) -> str:
     return "USD"
 
 
-def match_registered_vendor(raw_text: str, db: Session) -> Tuple[Optional[Vendor], float]:
+def normalize_gstin_candidate(raw_cand: str) -> Optional[str]:
+    """Cleans and validates an Indian GSTIN candidate string, fixing standard OCR
+    substitutions (e.g. letter 'O' confused with digit '0' in state code or PAN number).
+    Format: 2 digits (State) + 5 letters (PAN) + 4 digits (PAN) + 1 letter + 1 entity char + 'Z' + 1 check char.
+    """
+    if not raw_cand:
+        return None
+    cand = re.sub(r"[^A-Za-z0-9]", "", str(raw_cand)).upper()
+    if len(cand) != 15:
+        return None
+
+    # State code: 2 digits (01-38, 97, 99)
+    p1 = "0" if cand[0] == "O" else cand[0]
+    p2 = "0" if cand[1] == "O" else cand[1]
+    if not (p1.isdigit() and p2.isdigit()):
+        return None
+
+    # PAN letters: 5 uppercase letters
+    pan_letters = "".join("O" if c == "0" else c for c in cand[2:7])
+    if not pan_letters.isalpha():
+        return None
+
+    # PAN digits: 4 digits
+    pan_digits = "".join("0" if c == "O" else c for c in cand[7:11])
+    if not pan_digits.isdigit():
+        return None
+
+    # PAN 10th char: 1 letter
+    p12 = "O" if cand[11] == "0" else cand[11]
+    if not p12.isalpha():
+        return None
+
+    # Entity char: 1-9 or A-Z
+    p13 = cand[12]
+
+    # Default 14th char: 'Z' (OCR sometimes transcribes as '2')
+    p14 = "Z" if cand[13] in ("2", "Z") else cand[13]
+
+    # Checksum char
+    p15 = cand[14]
+
+    normalized = f"{p1}{p2}{pan_letters}{pan_digits}{p12}{p13}{p14}{p15}"
+    if re.match(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$", normalized):
+        return normalized
+    return None
+
+
+def match_registered_vendor(
+    raw_text: str, db: Session, supplier_gstin: Optional[str] = None
+) -> Tuple[Optional[Vendor], float]:
     """Matches text against registered university vendors in PostgreSQL."""
     try:
         vendors = db.query(Vendor).filter(Vendor.is_active == True).all()
@@ -133,10 +192,14 @@ def match_registered_vendor(raw_text: str, db: Session) -> Tuple[Optional[Vendor
             if v.vendor_code.lower() in normalized_text:
                 return v, 0.98
 
-        # Check tax identifier if present
+        # Check tax identifier if present (direct match with supplier_gstin or in text)
         for v in vendors:
-            if v.tax_identifier and v.tax_identifier.lower() in normalized_text:
-                return v, 0.99
+            if v.tax_identifier:
+                v_tax = v.tax_identifier.strip().upper()
+                if supplier_gstin and v_tax == supplier_gstin:
+                    return v, 0.99
+                if v_tax.lower() in normalized_text:
+                    return v, 0.99
 
         # Check legal name
         for v in vendors:
@@ -147,7 +210,7 @@ def match_registered_vendor(raw_text: str, db: Session) -> Tuple[Optional[Vendor
                 w
                 for w in v_name.split()
                 if len(w) > 3
-                and w not in ["inc", "llc", "corp", "ltd", "solutions", "services", "company", "pvt"]
+                and w not in ["inc", "llc", "corp", "ltd", "solutions", "services", "company", "pvt", "hub"]
             ]
             if len(words) >= 2 and " ".join(words[:2]) in normalized_text:
                 return v, 0.85
@@ -160,37 +223,81 @@ def match_registered_vendor(raw_text: str, db: Session) -> Tuple[Optional[Vendor
 
 def extract_gstins(raw_text: str) -> Tuple[Optional[str], Optional[str]]:
     """Extracts Indian GSTINs and separates Supplier GSTIN from Customer GSTIN.
+    Normalizes OCR confusions (e.g. letter O for digit 0 in state code).
     Supplier GSTIN appears in header/supplier area; Customer GSTIN appears in Billed To section.
-    Standard GSTIN format: 2 digits (state code) + 5 letters (PAN) + 4 digits + 1 letter + 1 char + Z + 1 char.
     """
-    gstin_pattern = r"\b([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1})\b"
-    all_gstins = re.findall(gstin_pattern, raw_text)
+    candidates: List[Tuple[str, int, bool]] = []
+
+    # 1. Search near GSTIN keywords
+    keyword_pat = r"(?i)\b(?:customer\s*gstin|buyer\s*gstin|party\s*gstin|supplier\s*gstin|gstin|gst\s*(?:no|number|id)|gst)[:.\s]*([0-9A-Z]{15})\b"
+    for m in re.finditer(keyword_pat, raw_text):
+        norm = normalize_gstin_candidate(m.group(1))
+        if norm:
+            kw_context = m.group(0).lower()
+            is_cust = any(k in kw_context for k in ["customer", "buyer", "party", "billed"])
+            candidates.append((norm, m.start(), is_cust))
+
+    # 2. Search all 15-character words matching GSTIN-like structures
+    regex_candidates = r"\b([0-9O]{2}[A-Z0]{5}[0-9O]{4}[A-Z0]{1}[0-9A-Z]{1}[Z2][0-9A-Z]{1})\b"
+    for m in re.finditer(regex_candidates, raw_text):
+        norm = normalize_gstin_candidate(m.group(1))
+        if norm and not any(c[0] == norm for c in candidates):
+            preceding = raw_text[max(0, m.start() - 30): m.start()].lower()
+            is_cust = any(k in preceding for k in ["customer", "buyer", "party", "billed"])
+            candidates.append((norm, m.start(), is_cust))
 
     supplier_gstin = None
     customer_gstin = None
 
-    if all_gstins:
-        # Check if customer section exists
-        billed_match = re.search(r"(?i)\b(?:billed\s*to|bill\s*to|customer|buyer|party\s*name)\b", raw_text)
-        if billed_match:
-            billed_pos = billed_match.start()
-            # GSTINs before 'Billed to' belong to supplier
-            supp_matches = [g for g in re.finditer(gstin_pattern, raw_text) if g.start() < billed_pos]
-            cust_matches = [g for g in re.finditer(gstin_pattern, raw_text) if g.start() >= billed_pos]
+    billed_match = re.search(r"(?i)\b(?:billed\s*to|bill\s*to|customer|buyer|party\s*name)\b", raw_text)
+    billed_pos = billed_match.start() if billed_match else len(raw_text)
 
-            supplier_gstin = supp_matches[0].group(1) if supp_matches else None
-            customer_gstin = cust_matches[0].group(1) if cust_matches else None
+    for gstin, pos, is_explicit_cust in candidates:
+        if is_explicit_cust or pos >= billed_pos:
+            if not customer_gstin:
+                customer_gstin = gstin
+        else:
+            if not supplier_gstin:
+                supplier_gstin = gstin
 
-        if not supplier_gstin and len(all_gstins) > 0:
-            supplier_gstin = all_gstins[0]
-        if not customer_gstin and len(all_gstins) > 1:
-            customer_gstin = all_gstins[1]
+    # Fallback assignment if only one slot filled
+    if not supplier_gstin and candidates:
+        supplier_gstin = candidates[0][0]
+    if not customer_gstin and len(candidates) > 1:
+        for c in candidates:
+            if c[0] != supplier_gstin:
+                customer_gstin = c[0]
+                break
 
     return supplier_gstin, customer_gstin
 
 
 def extract_customer_name(raw_text: str) -> Optional[str]:
-    """Extracts customer or billed-to entity name from the invoice."""
+    """Extracts customer or billed-to entity name from the invoice layout."""
+    lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+
+    for i, line in enumerate(lines):
+        m = re.search(r"(?i)\b(?:billed\s*to|bill\s*to|customer|buyer|party\s*name|invoice\s*to)\b", line)
+        if m:
+            after = line[m.end():].strip()
+            # Clean off header markers like '(CUSTOMER):' or column labels
+            after = re.sub(r"(?i)^\s*[:.\s]*(?:\(customer\)|customer)?[:.\s]*", "", after).strip()
+            if after and not re.search(r"(?i)\b(?:order|dispatch|details|po|inv|date)\b", after) and len(after) > 3:
+                cand = re.sub(r"(?i)\b(?:purchase\s*order|p\.?o\.?|delivery|dept|order|dispatch|gstin|pan|state)\b.*", "", after).strip()
+                cand = re.sub(r"(?i)^\s*(?:m/s\.?|messrs\.?)\s*", "", cand).strip()
+                if len(cand) > 2:
+                    return cand
+
+            # Inspect subsequent lines (within 3 lines) for the legal entity name
+            for j in range(i + 1, min(i + 4, len(lines))):
+                nxt = lines[j].strip()
+                if not nxt:
+                    continue
+                cand = re.sub(r"(?i)\b(?:purchase\s*order|p\.?o\.?|delivery|note|grn|dept|order|dispatch|gstin|pan|state|phone|tel)\b.*", "", nxt).strip()
+                cand = re.sub(r"(?i)^\s*(?:m/s\.?|messrs\.?)\s*", "", cand).strip()
+                if len(cand) > 3 and not re.search(r"(?i)^(?:dept|mahapura|road|jaipur|rajasthan|customer|date)\b", cand):
+                    return cand
+
     patterns = [
         r"(?i)(?:billed\s*to|bill\s*to|customer|buyer|party\s*name|invoice\s*to)[:.\s]+(?:m/s\.?\s*)?([^\n\r,]+)",
     ]
@@ -198,35 +305,47 @@ def extract_customer_name(raw_text: str) -> Optional[str]:
         m = re.search(pat, raw_text)
         if m:
             cand = m.group(1).strip()
-            # Clean up trailing label remnants
-            cand = re.sub(r"(?i)\b(?:address|gstin|pan|state)\b.*", "", cand).strip()
-            if len(cand) > 2:
+            cand = re.sub(r"(?i)\b(?:address|gstin|pan|state|order|dispatch)\b.*", "", cand).strip()
+            cand = re.sub(r"(?i)^\s*(?:m/s\.?|messrs\.?)\s*", "", cand).strip()
+            if len(cand) > 2 and cand.upper() not in ["(CUSTOMER)", "CUSTOMER"]:
                 return cand
     return None
 
 
 def extract_vendor_name(
-    raw_text: str, lines: List[str], db: Session
+    raw_text: str, lines: List[str], db: Session, supplier_gstin: Optional[str] = None
 ) -> Tuple[Optional[str], Optional[int], Optional[str], float]:
     """Identifies the vendor / supplier name from registered database records,
     invoice header layout, and bottom signature blocks. Never mistakes GSTIN,
-    PAN, phone numbers, email addresses, or postal addresses for the vendor.
+    PAN, phone numbers, email addresses, postal addresses, or copy type
+    (e.g. 'RECIPIENT', 'ORIGINAL FOR RECIPIENT') for the vendor.
     """
     # 1. Registered Vendor Match from Database
-    matched_vendor, vendor_conf = match_registered_vendor(raw_text, db)
+    matched_vendor, vendor_conf = match_registered_vendor(raw_text, db, supplier_gstin=supplier_gstin)
     if matched_vendor:
         return matched_vendor.legal_name, matched_vendor.id, matched_vendor.vendor_code, vendor_conf
 
     # 2. Corroborate with Bottom Signatory / Authorised Signatory block
     for_vendor = None
-    for_match = re.search(
+    invalid_recipients = {
+        "RECIPIENT", "TRANSPORTER", "SUPPLIER", "BUYER", "CONSIGNEE",
+        "CUSTOMER", "OFFICE COPY", "BANK", "CLIENT", "PAYEE", "APPLICANT"
+    }
+    for m in re.finditer(
         r"(?i)\bFor\s+([A-Za-z0-9\s.,&-]+?)(?:\r?\n|Receiver|Authorised|Authorized|$)",
         raw_text,
-    )
-    if for_match:
-        cand = for_match.group(1).strip()
-        if len(cand) > 3 and not re.search(r"(?i)^(?:the|payment|details|goods)\b", cand):
+    ):
+        preceding = raw_text[max(0, m.start() - 25): m.start()]
+        if re.search(r"(?i)\b(?:original|duplicate|triplicate|quadruplicate)\s+$", preceding):
+            continue
+        cand = m.group(1).strip()
+        if (
+            len(cand) > 3
+            and not re.search(r"(?i)^(?:the|payment|details|goods)\b", cand)
+            and cand.upper() not in invalid_recipients
+        ):
             for_vendor = cand
+            break
 
     # 3. Header Block Extraction
     # Locate where header ends (usually at 'Billed to', 'Invoice No', 'Dated')
@@ -246,7 +365,7 @@ def extract_vendor_name(
         line_clean = line.strip()
         if len(line_clean) < 3:
             continue
-        # Skip doc title labels
+        # Skip pure doc title labels
         if re.search(
             r"(?i)^(?:gstin|pan|cin|tax\s*invoice|original\s*copy|invoice|bill\s*of\s*supply|cash\s*memo|delivery\s*challan|duplicate\s*copy)\b",
             line_clean,
@@ -264,8 +383,15 @@ def extract_vendor_name(
         if re.search(r"\b\d{6}\b", line_clean):
             continue
 
-        header_candidate = line_clean
-        break
+        # Strip trailing document type suffixes from header line (e.g. " TAX INVOICE", " INVOICE")
+        cleaned_name = re.sub(
+            r"(?i)\s*[-|–—/]?\s*(?:TAX\s*INVOICE|INVOICE|BILL\s*OF\s*SUPPLY|CASH\s*MEMO|DELIVERY\s*CHALLAN|ORIGINAL\s*FOR\s*RECIPIENT)\b.*",
+            "",
+            line_clean,
+        ).strip()
+        if len(cleaned_name) > 3 and cleaned_name.upper() not in invalid_recipients:
+            header_candidate = cleaned_name
+            break
 
     # If both header candidate and signature match, high confidence
     if header_candidate and for_vendor:
@@ -279,7 +405,7 @@ def extract_vendor_name(
         return for_vendor, None, None, 0.88
 
     if header_candidate:
-        return header_candidate, None, None, 0.75
+        return header_candidate, None, None, 0.85
 
     return None, None, None, 0.0
 
@@ -330,13 +456,15 @@ def extract_financial_fields(raw_text: str, lines: List[str]) -> Dict[str, Any]:
     # --- 2. Extract Grand Total / Invoice Total ---
     if grand_total is None:
         for i, line in enumerate(lines):
-            if re.search(
+            kw_match = re.search(
                 r"(?i)\b(?:grand\s*total|invoice\s*total|net\s*payable|amount\s*payable|total\s*payable|balance\s*due)\b",
                 line,
-            ):
-                # Try inline
-                m = re.search(r"[:.\s]+[$€£₹]?\s*([0-9,]+(?:\.[0-9]{2})?)", line)
-                val = clean_amount(m.group(1)) if m else None
+            )
+            if kw_match:
+                # Try inline (search strictly after keyword)
+                after_kw = line[kw_match.end():]
+                m = re.search(r"[:.\s]*(?:[$€£₹]|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)", after_kw)
+                val = clean_amount(m.group(1)) if (m and m.group(1)) else None
                 # If not inline, look on next line
                 if val is None and i + 1 < len(lines):
                     val = clean_amount(lines[i + 1])
@@ -346,8 +474,8 @@ def extract_financial_fields(raw_text: str, lines: List[str]) -> Dict[str, Any]:
 
     if grand_total is None:
         gt_patterns = [
-            r"(?i)(?:grand\s*total|invoice\s*total|net\s*payable|amount\s*payable|total\s*amount(?:\s*due)?|total\s*due|balance\s*due)\s*(?:\([^)]+\))?[:.\s]*\n?[$€£₹]?\s*([0-9,]+(?:\.[0-9]{2})?)",
-            r"(?i)\btotal(?:\s+amount)*\s*(?:\([^)]+\))?[:.\s]*\n?[$€£₹]?\s*([0-9,]+(?:\.[0-9]{2})?)\b",
+            r"(?i)(?:grand\s*total|invoice\s*total|net\s*payable|amount\s*payable|total\s*amount(?:\s*due)?|total\s*due|balance\s*due)\s*(?:\([^)]+\))?[:.\s]*\n?(?:[$€£₹]|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)",
+            r"(?i)\btotal(?:\s+amount)*\s*(?:\([^)]+\))?[:.\s]*\n?(?:[$€£₹]|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)\b",
         ]
         for pat in gt_patterns:
             for m in re.finditer(pat, raw_text):
@@ -361,12 +489,14 @@ def extract_financial_fields(raw_text: str, lines: List[str]) -> Dict[str, Any]:
     # --- 3. Extract Subtotal (Taxable Value) if not found in table ---
     if subtotal is None:
         for i, line in enumerate(lines):
-            if re.search(
+            kw_match = re.search(
                 r"(?i)\b(?:taxable\s*(?:amt|amount|value)|sub\s*total|subtotal|total\s*taxable|net\s*amount)\b",
                 line,
-            ):
-                m = re.search(r"[:.\s]+[$€£₹]?\s*([0-9,]+(?:\.[0-9]{2})?)", line)
-                val = clean_amount(m.group(1)) if m else None
+            )
+            if kw_match:
+                after_kw = line[kw_match.end():]
+                m = re.search(r"[:.\s]*(?:[$€£₹]|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)", after_kw)
+                val = clean_amount(m.group(1)) if (m and m.group(1)) else None
                 if val is None and i + 1 < len(lines):
                     nxt = lines[i + 1]
                     if not re.search(r"(?i)(?:cgst|sgst|igst|tax)", nxt):
@@ -377,7 +507,7 @@ def extract_financial_fields(raw_text: str, lines: List[str]) -> Dict[str, Any]:
 
     if subtotal is None:
         sub_patterns = [
-            r"(?i)(?:taxable\s*(?:amount|value|amt\.?)|total\s*taxable\s*value|sub\s*total|subtotal|net\s*amount)\s*(?:\([^)]+\))?[:.\s]*\n?[$€£₹]?\s*([0-9,]+(?:\.[0-9]{2})?)",
+            r"(?i)(?:taxable\s*(?:amount|value|amt\.?)|total\s*taxable\s*value|sub\s*total|subtotal|net\s*amount)\s*(?:\([^)]+\))?[:.\s]*\n?(?:[$€£₹]|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)",
         ]
         for pat in sub_patterns:
             m = re.search(pat, raw_text)
@@ -389,17 +519,17 @@ def extract_financial_fields(raw_text: str, lines: List[str]) -> Dict[str, Any]:
 
     # --- 4. Extract CGST, SGST, IGST if not found in table ---
     if cgst is None:
-        cgst_m = re.search(r"(?i)\bCGST\b(?!\s*%)[:.\s]*\n?[$€£₹]?\s*([0-9,]+(?:\.[0-9]{2})?)", raw_text)
+        cgst_m = re.search(r"(?i)\bCGST\b(?!\s*%)[):.\s]*\n?(?:[$€£₹]|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)", raw_text)
         if cgst_m:
             cgst = clean_amount(cgst_m.group(1))
 
     if sgst is None:
-        sgst_m = re.search(r"(?i)\b(?:SGST|UTGST)\b(?!\s*%)[:.\s]*\n?[$€£₹]?\s*([0-9,]+(?:\.[0-9]{2})?)", raw_text)
+        sgst_m = re.search(r"(?i)\b(?:SGST|UTGST)\b(?!\s*%)[):.\s]*\n?(?:[$€£₹]|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)", raw_text)
         if sgst_m:
             sgst = clean_amount(sgst_m.group(1))
 
     if igst is None:
-        igst_m = re.search(r"(?i)\bIGST\b(?!\s*%)[:.\s]*\n?[$€£₹]?\s*([0-9,]+(?:\.[0-9]{2})?)", raw_text)
+        igst_m = re.search(r"(?i)\bIGST\b(?!\s*%)[):.\s]*\n?(?:[$€£₹]|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)", raw_text)
         if igst_m:
             igst = clean_amount(igst_m.group(1))
 
@@ -411,14 +541,14 @@ def extract_financial_fields(raw_text: str, lines: List[str]) -> Dict[str, Any]:
             total_tax = igst
         else:
             tax_m = re.search(
-                r"(?i)(?:total\s*tax|tax\s*amount|gst\s*amount|vat\s*amount)\b(?!\s*%)[:.\s]*\n?[$€£₹]?\s*([0-9,]+(?:\.[0-9]{2})?)",
+                r"(?i)(?:total\s*tax|tax\s*amount|gst\s*amount|vat\s*amount)\b(?!\s*%)[):.\s]*\n?(?:[$€£₹]|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)",
                 raw_text,
             )
             if tax_m:
                 total_tax = clean_amount(tax_m.group(1))
             else:
                 gen_tax = re.search(
-                    r"(?i)\b(?:tax|vat|gst)\b(?!\s*%)[:.\s]*\n?[$€£₹]?\s*([0-9,]+(?:\.[0-9]{2})?)",
+                    r"(?i)\b(?:tax|vat|gst)\b(?!\s*%)[):.\s]*\n?(?:[$€£₹]|rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]{2})?)",
                     raw_text,
                 )
                 if gen_tax:
@@ -496,6 +626,75 @@ def extract_financial_fields(raw_text: str, lines: List[str]) -> Dict[str, Any]:
     }
 
 
+def extract_grn_number(raw_text: str) -> Optional[str]:
+    """Extracts Goods Receipt Note (GRN) or Delivery Note identifier from document text."""
+    grn_patterns = [
+        r"(?i)(?:delivery\s*note\s*/\s*grn|goods\s*receipt\s*(?:note|no|number|#)?|grn\s*(?:no|number|#|num)?|delivery\s*note)[:.\s]+([A-Za-z0-9-_/]+)",
+        r"(?i)\b(GRN-[A-Za-z0-9-]+)\b",
+    ]
+    for pat in grn_patterns:
+        m = re.search(pat, raw_text)
+        if m:
+            cand = m.group(1).strip()
+            if len(cand) > 2 and cand.upper() not in ["N/A", "NONE", "NIL", "NOT"]:
+                return cand
+    return None
+
+
+def extract_line_items(raw_text: str) -> List[Dict[str, Any]]:
+    """Extracts itemized invoice lines from invoice text tables.
+    Captures: line_number, description, quantity, unit_price, tax_rate, line_total.
+    """
+    lines = raw_text.splitlines()
+    items: List[Dict[str, Any]] = []
+
+    # Regex for standard tabular row:
+    # LineNum Description Qty [UOM] UnitPrice [TaxRate%] LineTotal
+    row_pattern = re.compile(
+        r"^\s*(\d{1,3})\s+"  # Line number
+        r"(.+?)\s+"         # Description
+        r"(\d+(?:\.\d+)?)\s*" # Quantity
+        r"(?:(?:nos|pcs|units?|sets?|months?|box|lot|kg|hrs?|hours?)\s+)?" # Optional UOM
+        r"(?:Rs\.?|INR|₹|\$|€)?\s*([\d.,]+)\s+" # Unit Price
+        r"(?:(\d+(?:\.\d+)?)\s*%\s+)?" # Optional Tax Rate %
+        r"(?:Rs\.?|INR|₹|\$|€)?\s*([\d.,]+)\s*$", # Total Amount
+        re.IGNORECASE,
+    )
+
+    table_started = False
+    for line in lines:
+        line_str = line.strip()
+        if not line_str:
+            continue
+        if re.search(r"(?i)\b(?:item\s*description|description\s*/|particulars|item\s*name)\b", line_str):
+            table_started = True
+            continue
+        if table_started and re.search(
+            r"(?i)\b(?:sub\s*total|subtotal|total\s*tax|grand\s*total|bank\s*remittance|remittance)\b",
+            line_str,
+        ):
+            break
+
+        m = row_pattern.match(line_str)
+        if m:
+            ln_str, desc, qty_str, price_str, tax_str, tot_str = m.groups()
+            qty = Decimal(qty_str)
+            price = clean_amount(price_str)
+            total = clean_amount(tot_str)
+            tax = Decimal(tax_str) if tax_str else Decimal("0.00")
+            if price is not None and total is not None:
+                items.append({
+                    "line_number": int(ln_str),
+                    "description": desc.strip(),
+                    "quantity": qty,
+                    "unit_price": price,
+                    "tax_rate": tax,
+                    "line_total": total,
+                })
+
+    return items
+
+
 def extract_fields_from_text(raw_text: str, db: Session) -> Dict[str, Any]:
     """Performs comprehensive heuristic, regex, and database parsing on raw document
     text to extract the 11 specified invoice fields and calculate field-level confidences.
@@ -525,7 +724,9 @@ def extract_fields_from_text(raw_text: str, db: Session) -> Dict[str, Any]:
     customer_name = extract_customer_name(raw_text)
 
     # 3. Vendor Extraction & Matching
-    vendor_name, vendor_id, vendor_code, vendor_conf = extract_vendor_name(raw_text, lines, db)
+    vendor_name, vendor_id, vendor_code, vendor_conf = extract_vendor_name(
+        raw_text, lines, db, supplier_gstin=supplier_gstin
+    )
     field_confidences["vendor_name"] = vendor_conf
     if not vendor_name or vendor_conf < 0.5:
         missing_fields.append("vendor")
@@ -559,8 +760,9 @@ def extract_fields_from_text(raw_text: str, db: Session) -> Dict[str, Any]:
     po_num = None
     po_conf = 0.0
     po_patterns = [
-        r"(?i)(?:purchase\s*order\s*(?:no|number|#|num)?|p\.?o\.?\s*(?:no|number|#|num)?[:.\s]+)\s*([A-Za-z0-9-_/]+)",
+        r"(?i)(?:purchase\s*order|p\.?o\.?)(?:\s*(?:no|number|#|num))?[:.\s]+([A-Za-z0-9-_/]+)",
         r"(?i)\b(PO-[A-Za-z0-9-]+)\b",
+        r"(?i)\bPO\s*#\s*([A-Za-z0-9-_/]+)\b",
     ]
     for pat in po_patterns:
         m = re.search(pat, raw_text)
@@ -579,6 +781,13 @@ def extract_fields_from_text(raw_text: str, db: Session) -> Dict[str, Any]:
             po_conf = 0.98
 
     field_confidences["purchase_order"] = po_conf
+
+    # 5b. Goods Receipt Note (GRN) Number (Optional)
+    grn_num = extract_grn_number(raw_text)
+    field_confidences["grn_number"] = 0.90 if grn_num else 0.0
+
+    # 5c. Itemized Line Items
+    line_items = extract_line_items(raw_text)
 
     # 6. Dates: Invoice Date & Due Date
     inv_date = None
@@ -643,6 +852,8 @@ def extract_fields_from_text(raw_text: str, db: Session) -> Dict[str, Any]:
     )
     if desc_m:
         description = desc_m.group(1).strip()
+    elif line_items:
+        description = "; ".join(f"{it['description']} (x{it['quantity']})" for it in line_items[:3])
     elif len(lines) > 2:
         for ln in lines[1:5]:
             if (
@@ -683,6 +894,8 @@ def extract_fields_from_text(raw_text: str, db: Session) -> Dict[str, Any]:
         "invoice_number": inv_num,
         "purchase_order_id": po_id,
         "purchase_order_number": po_num,
+        "grn_number": grn_num,
+        "line_items": line_items,
         "invoice_date": inv_date,
         "due_date": due_date,
         "subtotal": subtotal or Decimal("0.00"),

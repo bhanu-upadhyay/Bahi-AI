@@ -125,9 +125,11 @@ class DynamicAPOrchestrator:
         error_message: Optional[str] = None,
     ) -> AgentExecutionLog:
         """Appends a tool execution record to agent_execution_logs table."""
+        # Use agent name directly for full agent executions, and Tool:<name> for granular tool calls
+        formatted_name = tool_name if (tool_name.endswith("Agent") or tool_name.startswith("Tool:")) else f"Tool:{tool_name}"
         log = AgentExecutionLog(
             invoice_id=invoice_id,
-            agent_name=f"Tool:{tool_name}",
+            agent_name=formatted_name,
             execution_status=status,
             input_summary=input_summary[:2000] if input_summary else None,
             output_summary=output_summary[:2000] if output_summary else None,
@@ -246,15 +248,34 @@ class DynamicAPOrchestrator:
             # If no tool calls made, Gemini finished with conversational text
             if not step_result.tool_calls:
                 logger.info(f"[DynamicAPOrchestrator] Gemini returned terminal text: {step_result.text_content}")
-                if step_result.text_content:
+                if step_result.raw_message:
+                    messages.append(step_result.raw_message)
+                elif step_result.text_content:
                     messages.append({"role": "model", "text": step_result.text_content})
                 break
 
-            # Execute tool calls returned by Gemini
+            # Preserve model turn (with native SDK candidate content, function calls and thought signatures)
+            if step_result.raw_message:
+                messages.append(step_result.raw_message)
+            else:
+                messages.append({
+                    "role": "model",
+                    "parts": [{"function_call": {"name": tc.tool_name, "args": tc.arguments}} for tc in step_result.tool_calls],
+                })
+
+            # Execute tool calls returned by Gemini and collect function responses for user turn
+            user_response_parts: List[Dict[str, Any]] = []
+
             for tc in step_result.tool_calls:
                 if total_tool_calls >= self.MAX_TOOL_CALLS:
                     logger.warning(f"[DynamicAPOrchestrator] Reached maximum tool calls limit ({self.MAX_TOOL_CALLS})")
-                    break
+                    user_response_parts.append({
+                        "function_response": {
+                            "name": tc.tool_name,
+                            "response": {"result": {"warning": "Maximum tool execution limit reached. Please call request_human_review."}},
+                        }
+                    })
+                    continue
 
                 total_tool_calls += 1
                 tool_name = tc.tool_name
@@ -332,20 +353,22 @@ class DynamicAPOrchestrator:
                     )
                 )
 
-                # Feed function call and response back into conversation messages
-                messages.append({
-                    "role": "model",
-                    "parts": [{"function_call": {"name": tool_name, "args": args}}],
-                })
-                messages.append({
-                    "role": "user",
-                    "parts": [{"function_response": {"name": tool_name, "response": {"result": tool_output}}}],
+                # Collect function response for user turn
+                user_response_parts.append({
+                    "function_response": {
+                        "name": tool_name,
+                        "response": {"result": tool_output},
+                    }
                 })
 
                 # If request_human_review was called, we have completed our investigation
                 if tool_name == "request_human_review" and tool_status == "SUCCESS":
                     logger.info("[DynamicAPOrchestrator] Human review successfully requested by Gemini. Ending loop.")
                     break
+
+            # Append user turn containing responses for all executed tools in this step
+            if user_response_parts:
+                messages.append({"role": "user", "parts": user_response_parts})
 
             if human_review_result or total_tool_calls >= self.MAX_TOOL_CALLS:
                 break

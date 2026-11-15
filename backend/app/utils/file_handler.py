@@ -25,8 +25,17 @@ FILE_SIGNATURES = {
 }
 
 # Base upload directory
-BASE_UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads" / "invoices"
-BASE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+def get_base_upload_dir() -> Path:
+    """Returns the base upload directory, supporting test isolation via UPLOAD_DIR env var."""
+    custom_dir = os.environ.get("UPLOAD_DIR")
+    if custom_dir:
+        p = Path(custom_dir).resolve()
+    else:
+        p = (Path(__file__).resolve().parent.parent.parent / "uploads" / "invoices").resolve()
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+BASE_UPLOAD_DIR = get_base_upload_dir()
 
 
 class FileValidationError(Exception):
@@ -111,11 +120,12 @@ def save_uploaded_file(content: bytes, original_filename: str) -> Tuple[str, str
     sha256 = compute_sha256(content)
     detected_mime, ext = validate_file_content(content, original_filename)
 
+    base_dir = get_base_upload_dir()
     unique_server_filename = f"{uuid.uuid4().hex}{ext}"
-    target_path = BASE_UPLOAD_DIR / unique_server_filename
+    target_path = base_dir / unique_server_filename
 
     # Ensure no path traversal
-    if not str(target_path.resolve()).startswith(str(BASE_UPLOAD_DIR.resolve())):
+    if not str(target_path.resolve()).startswith(str(base_dir.resolve())):
         raise FileValidationError("Unsafe target path detected.")
 
     with open(target_path, "wb") as f:
@@ -139,11 +149,19 @@ def get_absolute_file_path(relative_path: str) -> Path:
     if ".." in relative_path or "\x00" in relative_path:
         raise PermissionError("Path traversal sequence detected in document path.")
 
+    base_dir = get_base_upload_dir()
+    filename = os.path.basename(relative_path)
+    candidate_in_base = (base_dir / filename).resolve()
+    if candidate_in_base.exists() and candidate_in_base.is_file():
+        return candidate_in_base
+
+    backend_dir = Path(__file__).resolve().parent.parent.parent
+    uploads_dir = (backend_dir / "uploads").resolve()
     clean_path = Path(relative_path.lstrip("/"))
     abs_path = (backend_dir / clean_path).resolve()
 
-    # Safety check: must reside strictly inside uploads directory
-    if not str(abs_path).startswith(str(uploads_dir)):
+    # Safety check: must reside strictly inside uploads directory or base_dir
+    if not str(abs_path).startswith(str(uploads_dir)) and not str(abs_path).startswith(str(base_dir)):
         raise PermissionError("Access denied: Target document path lies outside designated uploads directory.")
 
     if not abs_path.exists() or not abs_path.is_file():

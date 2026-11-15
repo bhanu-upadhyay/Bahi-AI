@@ -68,9 +68,13 @@ class GeminiProvider(BaseLLMProvider):
             if tools:
                 config.tools = tools
 
-            # Convert message dicts to SDK Contents
+            # Convert message dicts or SDK Contents to SDK Contents
             contents: List[types.Content] = []
             for m in messages:
+                if isinstance(m, types.Content):
+                    contents.append(m)
+                    continue
+
                 role = m.get("role", "user")
                 if "parts" in m and isinstance(m["parts"], list):
                     parts = []
@@ -78,6 +82,13 @@ class GeminiProvider(BaseLLMProvider):
                         if isinstance(p, types.Part):
                             parts.append(p)
                         elif isinstance(p, dict):
+                            if "thought_signature" in p and ("function_call" in p or "function_response" in p):
+                                try:
+                                    parts.append(types.Part.model_validate(p))
+                                    continue
+                                except Exception:
+                                    pass
+
                             if "text" in p:
                                 parts.append(types.Part.from_text(text=p["text"]))
                             elif "function_call" in p:
@@ -128,12 +139,18 @@ class GeminiProvider(BaseLLMProvider):
 
             text_content = response.text if hasattr(response, "text") and response.text else None
 
+            # Preserve native SDK Candidate Content (which contains all parts, function calls, and thought signatures)
+            raw_message = None
+            if response.candidates and len(response.candidates) > 0 and response.candidates[0].content:
+                raw_message = response.candidates[0].content
+
             return LLMStepResult(
                 tool_calls=tool_calls,
                 text_content=text_content,
                 finish_reason="TOOL_CALL" if tool_calls else "STOP",
                 model_name=self.model_name,
                 provider_name=self.provider_name,
+                raw_message=raw_message,
             )
 
         except Exception as e:

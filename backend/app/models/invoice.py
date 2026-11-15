@@ -92,9 +92,6 @@ class Invoice(Base):
     __table_args__ = (
         UniqueConstraint("vendor_id", "normalized_invoice_number", name="uq_vendor_normalized_invoice"),
         Index("ix_invoices_dept_status", "department_id", "processing_status"),
-        Index("ix_invoices_approval_status", "approval_status"),
-        Index("ix_invoices_payment_status", "payment_status"),
-        Index("ix_invoices_file_hash", "file_hash"),
     )
 
     # Relationships

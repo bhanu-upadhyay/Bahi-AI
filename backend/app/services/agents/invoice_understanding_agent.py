@@ -73,7 +73,7 @@ class InvoiceUnderstandingAgent:
                     f"Due date ({due_date}) precedes invoice date ({inv_date})."
                 )
 
-        # 3. Tax Structure Identification
+        # 3. Tax Structure Identification & GST Validation
         gst_breakdown = (invoice.extraction_metadata or {}).get("gst_breakdown") or {}
         cgst = Decimal(str(gst_breakdown.get("cgst_amount") or "0.00")) if gst_breakdown.get("cgst_amount") else None
         sgst = Decimal(str(gst_breakdown.get("sgst_amount") or "0.00")) if gst_breakdown.get("sgst_amount") else None
@@ -81,8 +81,21 @@ class InvoiceUnderstandingAgent:
         disc = Decimal(str(gst_breakdown.get("discount_amount") or "0.00")) if gst_breakdown.get("discount_amount") else Decimal("0.00")
         rnd = Decimal(str(gst_breakdown.get("roundoff_amount") or "0.00")) if gst_breakdown.get("roundoff_amount") else Decimal("0.00")
 
-        if cgst and sgst:
+        # Double Taxation Guard: IGST and (CGST/SGST) are mutually exclusive under Indian GST
+        has_double_taxation = False
+        if igst and (cgst or sgst):
+            has_double_taxation = True
+            tax_type = "CONFLICT_DOUBLE_TAXATION (IGST + CGST/SGST)"
+            abnormalities.append(
+                f"Double taxation violation: Invoice charges both Inter-state IGST ({igst}) and Intra-state CGST/SGST (CGST: {cgst}, SGST: {sgst})."
+            )
+        elif cgst and sgst:
             tax_type = "INTRA_STATE_GST (CGST + SGST)"
+            # Symmetry check: CGST and SGST must have equal amounts under statutory rules
+            if abs(cgst - sgst) > Decimal("0.05"):
+                abnormalities.append(
+                    f"Asymmetric Intra-state GST: CGST ({cgst}) does not equal SGST ({sgst})."
+                )
         elif igst:
             tax_type = "INTER_STATE_GST (IGST)"
         elif tax_amount > Decimal("0.00"):
@@ -90,12 +103,23 @@ class InvoiceUnderstandingAgent:
         else:
             tax_type = "ZERO_RATED / EXEMPT"
 
+        # Check if individual GST components sum up to total tax amount
+        if (cgst or sgst or igst) and not has_double_taxation:
+            tax_components_sum = (cgst or Decimal("0.00")) + (sgst or Decimal("0.00")) + (igst or Decimal("0.00"))
+            if abs(tax_components_sum - tax_amount) > Decimal("0.50"):
+                abnormalities.append(
+                    f"Tax breakdown sum ({tax_components_sum}) does not match total invoice tax ({tax_amount})."
+                )
+
         # 4. Mathematical Reconciliation Check
         expected_total = subtotal + tax_amount - disc + rnd
         discrepancy = abs(expected_total - total_amount)
-        math_reconciled = discrepancy <= Decimal("0.05") or (rnd != Decimal("0.00") and discrepancy <= Decimal("1.00"))
+        math_reconciled = (
+            not has_double_taxation
+            and (discrepancy <= Decimal("0.05") or (rnd != Decimal("0.00") and discrepancy <= Decimal("1.00")))
+        )
 
-        if not math_reconciled:
+        if not math_reconciled and not has_double_taxation:
             abnormalities.append(
                 f"Financial reconciliation failed: Subtotal ({subtotal}) + Tax ({tax_amount})"
                 + (f" - Discount ({disc})" if disc > 0 else "")
@@ -103,14 +127,39 @@ class InvoiceUnderstandingAgent:
                 + f" = {expected_total}, but Grand Total is {total_amount} (Diff: {discrepancy})."
             )
 
-        # 5. Extraction Confidence Score Check
+        # 5. Line-Item Aggregation & Duplicate Line Detection (if lines present)
+        invoice_lines = invoice.lines or []
+        if invoice_lines:
+            lines_subtotal = Decimal("0.00")
+            seen_lines = set()
+            for l in invoice_lines:
+                l_qty = Decimal(str(l.quantity if l.quantity is not None else 0))
+                l_price = Decimal(str(l.unit_price if l.unit_price is not None else 0))
+                lines_subtotal += (l_qty * l_price).quantize(Decimal("0.01"))
+
+                # Duplicate line signature
+                line_sig = (l.description.strip().lower() if l.description else "", l_qty, l_price)
+                if line_sig in seen_lines:
+                    abnormalities.append(
+                        f"Potential duplicate invoice line item: '{l.description}' (Qty: {l_qty}, Price: {l_price})."
+                    )
+                else:
+                    seen_lines.add(line_sig)
+
+            # Check if sum of line items aligns with invoice subtotal
+            if subtotal > Decimal("0.00") and abs(lines_subtotal - subtotal) > Decimal("1.00"):
+                abnormalities.append(
+                    f"Line items subtotal sum ({lines_subtotal:,.2f}) does not match invoice subtotal ({subtotal:,.2f})."
+                )
+
+        # 6. Extraction Confidence Score Check
         conf_score = invoice.confidence_score if invoice.confidence_score is not None else Decimal("50.00")
         if conf_score < Decimal("70.00"):
             abnormalities.append(f"OCR extraction confidence ({conf_score}%) is below 70% threshold.")
 
-        # 6. Overall Status Determination
-        if len(missing_fields) > 0 or not math_reconciled or conf_score < Decimal("60.00"):
-            status = "FAILED" if (len(missing_fields) > 1 or total_amount <= Decimal("0.00")) else "WARNING"
+        # 7. Overall Status Determination
+        if len(missing_fields) > 0 or not math_reconciled or has_double_taxation or conf_score < Decimal("60.00"):
+            status = "FAILED" if (len(missing_fields) > 1 or total_amount <= Decimal("0.00") or has_double_taxation) else "WARNING"
         elif len(abnormalities) > 0:
             status = "WARNING"
         else:

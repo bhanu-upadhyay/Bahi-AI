@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LLMToolCall(BaseModel):
@@ -17,6 +17,9 @@ class LLMStepResult(BaseModel):
     finish_reason: Optional[str] = None
     model_name: str
     provider_name: str
+    raw_message: Optional[Any] = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class BaseLLMProvider(ABC):

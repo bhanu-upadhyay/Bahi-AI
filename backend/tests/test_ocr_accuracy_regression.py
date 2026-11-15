@@ -303,3 +303,142 @@ def test_human_review_and_gst_reconciliation_sync():
     val_data = val_res.json()
     assert val_data["success"] is True
     assert val_data["processing_status"] == "VALIDATED"
+
+
+def test_clean_amount_ocr_dot_thousand_separator():
+    """Tests that clean_amount correctly handles OCR-confused dot thousand separators."""
+    assert clean_amount("7.560.00") == Decimal("7560.00")
+    assert clean_amount("Rs 7.560.00") == Decimal("7560.00")
+    assert clean_amount("Rs. 191,600.00") == Decimal("191600.00")
+    assert clean_amount("42,000.00") == Decimal("42000.00")
+    assert clean_amount("49,560.00") == Decimal("49560.00")
+
+
+def test_gstin_normalization_ocr_confusions():
+    """Tests GSTIN extraction and OCR confusion correction (e.g. letter O -> digit 0)."""
+    from app.services.extraction_service import normalize_gstin_candidate, extract_gstins
+
+    # State code 'O8' -> '08'
+    assert normalize_gstin_candidate("O8AABCJ1234D1Z5") == "08AABCJ1234D1Z5"
+    assert normalize_gstin_candidate("O8AAACJ0001Z1Z0") == "08AAACJ0001Z1Z0"
+
+    raw_sample = """
+    Jaipur Academic Stationers & Print Hub
+    GSTIN: O8AABCJ1234D1Z5
+    BILLED TO (CUSTOMER):
+    Customer GSTIN: O8AAACJ0001Z1Z0
+    """
+    supp, cust = extract_gstins(raw_sample)
+    assert supp == "08AABCJ1234D1Z5"
+    assert cust == "08AAACJ0001Z1Z0"
+
+
+def test_invoice_012_ocr_extraction_and_reconciliation(db_session):
+    """REGRESSION TEST for INV-JKLU-2026-012:
+    Verifies that:
+      - Vendor name is 'Jaipur Academic Stationers & Print Hub' (NOT 'RECIPIENT')
+      - Supplier GSTIN is '08AABCJ1234D1Z5' (normalized from O8)
+      - Customer is 'JK Lakshmipat University' with GSTIN '08AAACJ0001Z1Z0'
+      - PO is 'PO-JKLU-2026-012'
+      - GRN is 'GRN-JKLU-2026-012'
+      - Invoice number is 'INV-JKLU-2026-012'
+      - Dates: 2026-10-01, Due: 2026-10-31
+      - Financials: Subtotal ₹42,000, CGST ₹3,780, SGST ₹3,780, Total ₹49,560
+      - Exactly 3 line items itemized and verified
+      - Reconciled with high confidence (>= 90%)
+    """
+    pdf_path = os.path.join(
+        os.path.dirname(__file__), "..", "..", "data", "jklu", "invoices", "INV-JKLU-2026-012.pdf"
+    )
+    assert os.path.exists(pdf_path), f"Invoice PDF not found at {pdf_path}"
+
+    from app.services.ocr_service import extract_document_text
+    raw_text, ocr_method, meta = extract_document_text(pdf_path, "application/pdf")
+    assert len(raw_text) > 100
+
+    extracted = extract_fields_from_text(raw_text, db_session)
+
+    # 1. Vendor
+    assert extracted["vendor_name"] == "Jaipur Academic Stationers & Print Hub"
+    assert extracted["vendor_name"] != "RECIPIENT"
+
+    # 2. GSTINs
+    assert extracted["tax_identifier"] == "08AABCJ1234D1Z5"
+    assert extracted["customer_gstin"] == "08AAACJ0001Z1Z0"
+    assert extracted["customer_name"] == "JK Lakshmipat University"
+
+    # 3. PO and GRN
+    assert extracted["invoice_number"] == "INV-JKLU-2026-012"
+    assert extracted["purchase_order_number"] == "PO-JKLU-2026-012"
+    assert extracted["grn_number"] == "GRN-JKLU-2026-012"
+
+    # 4. Dates
+    assert extracted["invoice_date"] == date(2026, 10, 1)
+    assert extracted["due_date"] == date(2026, 10, 31)
+
+    # 5. Financials
+    assert extracted["subtotal"] == Decimal("42000.00")
+    assert extracted["cgst_amount"] == Decimal("3780.00")
+    assert extracted["sgst_amount"] == Decimal("3780.00")
+    assert extracted["tax_amount"] == Decimal("7560.00")
+    assert extracted["total_amount"] == Decimal("49560.00")
+    assert extracted["reconciliation_status"] == "RECONCILED"
+    assert extracted["confidence_score"] >= Decimal("90.00")
+
+    # 6. Itemized Lines
+    lines = extracted["line_items"]
+    assert len(lines) == 3
+    assert lines[0]["line_number"] == 1
+    assert "HVAC & Chiller" in lines[0]["description"]
+    assert lines[0]["quantity"] == Decimal("1")
+    assert lines[0]["unit_price"] == Decimal("25000.00")
+    assert lines[0]["line_total"] == Decimal("25000.00")
+
+    assert lines[1]["line_number"] == 2
+    assert "AHU" in lines[1]["description"]
+    assert lines[1]["quantity"] == Decimal("10")
+    assert lines[1]["unit_price"] == Decimal("1000.00")
+    assert lines[1]["line_total"] == Decimal("10000.00")
+
+    assert lines[2]["line_number"] == 3
+    assert "Chilled Water Pump" in lines[2]["description"]
+    assert lines[2]["quantity"] == Decimal("2")
+    assert lines[2]["unit_price"] == Decimal("3500.00")
+    assert lines[2]["line_total"] == Decimal("7000.00")
+
+
+def test_invoice_012_upload_and_line_items_persistence(db_session):
+    """REGRESSION TEST: Uploading INV-JKLU-2026-012 persists InvoiceLines in database
+    and stores purchase_order_number and grn_number in extraction metadata.
+    """
+    pdf_path = os.path.join(
+        os.path.dirname(__file__), "..", "..", "data", "jklu", "invoices", "INV-JKLU-2026-012.pdf"
+    )
+    with open(pdf_path, "rb") as f:
+        file_bytes = f.read()
+
+    res = client.post(
+        "/api/v1/invoices/upload",
+        files={"file": ("INV-JKLU-2026-012.pdf", file_bytes, "application/pdf")},
+    )
+    assert res.status_code == 201
+    data = res.json()
+    inv_id = data["invoice_id"]
+
+    # Verify Invoice detail endpoint returns itemized lines
+    detail_res = client.get(f"/api/v1/invoices/{inv_id}")
+    assert detail_res.status_code == 200
+    detail = detail_res.json()
+
+    assert detail["invoice_number"] == "INV-JKLU-2026-012"
+    assert len(detail["lines"]) == 3
+    assert detail["extraction_metadata"]["purchase_order_number"] == "PO-JKLU-2026-012"
+    assert detail["extraction_metadata"]["grn_number"] == "GRN-JKLU-2026-012"
+    assert float(detail["subtotal"]) == 42000.00
+    assert float(detail["total_amount"]) == 49560.00
+    assert detail["lines"][0]["line_number"] == 1
+    assert float(detail["lines"][0]["line_total"]) == 25000.00
+    assert detail["lines"][1]["line_number"] == 2
+    assert float(detail["lines"][1]["line_total"]) == 10000.00
+    assert detail["lines"][2]["line_number"] == 3
+    assert float(detail["lines"][2]["line_total"]) == 7000.00

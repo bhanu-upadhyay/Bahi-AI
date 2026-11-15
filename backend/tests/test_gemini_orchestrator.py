@@ -463,3 +463,235 @@ def test_live_gemini_dynamic_orchestration():
         assert report.risk_score >= 0
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# 9. Regression Tests: Thought Signature & Multi-Tool Conversation Integrity
+# ---------------------------------------------------------------------------
+def test_thought_signature_preserved_across_tool_call_round_trip():
+    """Regression test: verify thought_signature on Gemini Candidate Part is preserved
+    when sending function response back to Gemini on subsequent turns.
+    """
+    from google.genai import types
+
+    db = SessionLocal()
+    try:
+        invoice = db.query(Invoice).first()
+        if not invoice:
+            pytest.skip("No invoice in test database")
+
+        # Step 1: Model emits tool call with official thought_signature
+        sig_bytes = b"sig_gemini_thought_verification_token_98765"
+        p_call = types.Part(
+            function_call=types.FunctionCall(
+                name="get_invoice_details",
+                args={"invoice_id": invoice.id},
+            ),
+            thought_signature=sig_bytes,
+        )
+        raw_model_content = types.Content(role="model", parts=[p_call])
+
+        captured_turns = []
+
+        class SignatureTrackingProvider(BaseLLMProvider):
+            def __init__(self):
+                super().__init__(api_key="dummy", model_name="gemini-3.5-flash-lite")
+                self.step_idx = 0
+
+            @property
+            def provider_name(self) -> str:
+                return "gemini"
+
+            def generate_step(self, system_instruction, messages, tools=None) -> LLMStepResult:
+                captured_turns.append(list(messages))
+                self.step_idx += 1
+                if self.step_idx == 1:
+                    return LLMStepResult(
+                        tool_calls=[LLMToolCall(tool_name="get_invoice_details", arguments={"invoice_id": invoice.id})],
+                        model_name=self.model_name,
+                        provider_name=self.provider_name,
+                        raw_message=raw_model_content,
+                    )
+                else:
+                    return LLMStepResult(
+                        tool_calls=[
+                            LLMToolCall(
+                                tool_name="request_human_review",
+                                arguments={
+                                    "invoice_id": invoice.id,
+                                    "reason": "Verified",
+                                    "recommended_action": "APPROVE",
+                                },
+                            )
+                        ],
+                        model_name=self.model_name,
+                        provider_name=self.provider_name,
+                    )
+
+        provider = SignatureTrackingProvider()
+        orchestrator = DynamicAPOrchestrator(provider=provider)
+        orchestrator.analyze_invoice(invoice_id=invoice.id, db=db)
+
+        # In turn 2, captured_turns[1] should have 3 messages:
+        # 0: initial user prompt
+        # 1: raw model content with thought_signature
+        # 2: user function response
+        assert len(captured_turns) >= 2
+        turn2_messages = captured_turns[1]
+        assert len(turn2_messages) == 3
+
+        model_msg = turn2_messages[1]
+        assert isinstance(model_msg, types.Content)
+        assert model_msg.role == "model"
+        assert len(model_msg.parts) == 1
+        assert model_msg.parts[0].thought_signature == sig_bytes
+
+        # Verify that GeminiProvider converts turn2_messages into SDK contents preserving the signature
+        gemini_prov = GeminiProvider(api_key="fake-key")
+        with patch.object(gemini_prov._client.models, "generate_content") as mock_gen:
+            mock_gen.return_value = MagicMock(candidates=[], function_calls=[], text="Done")
+            gemini_prov.generate_step(system_instruction="sys", messages=turn2_messages, tools=[])
+            call_kwargs = mock_gen.call_args.kwargs
+            passed_contents = call_kwargs["contents"]
+            assert passed_contents[1].parts[0].thought_signature == sig_bytes
+    finally:
+        db.close()
+
+
+def test_multiple_tool_calls_in_single_turn_preserved():
+    """Regression test: verify multiple tool calls in a single model turn preserve
+    thought signatures and are paired with a single user response turn containing all tool results.
+    """
+    from google.genai import types
+
+    db = SessionLocal()
+    try:
+        invoice = db.query(Invoice).first()
+        if not invoice:
+            pytest.skip("No invoice in test database")
+
+        sig1 = b"sig_call_part_1"
+        sig2 = b"sig_call_part_2"
+        p1 = types.Part(
+            function_call=types.FunctionCall(
+                name="get_invoice_details",
+                args={"invoice_id": invoice.id},
+            ),
+            thought_signature=sig1,
+        )
+        p2 = types.Part(
+            function_call=types.FunctionCall(
+                name="verify_vendor_status",
+                args={"invoice_id": invoice.id},
+            ),
+            thought_signature=sig2,
+        )
+        multi_call_content = types.Content(role="model", parts=[p1, p2])
+
+        captured_turns = []
+
+        class MultiToolProvider(BaseLLMProvider):
+            def __init__(self):
+                super().__init__(api_key="dummy", model_name="gemini-3.5-flash-lite")
+                self.step_idx = 0
+
+            @property
+            def provider_name(self) -> str:
+                return "gemini"
+
+            def generate_step(self, system_instruction, messages, tools=None) -> LLMStepResult:
+                captured_turns.append(list(messages))
+                self.step_idx += 1
+                if self.step_idx == 1:
+                    return LLMStepResult(
+                        tool_calls=[
+                            LLMToolCall(tool_name="get_invoice_details", arguments={"invoice_id": invoice.id}),
+                            LLMToolCall(tool_name="verify_vendor_status", arguments={"invoice_id": invoice.id}),
+                        ],
+                        model_name=self.model_name,
+                        provider_name=self.provider_name,
+                        raw_message=multi_call_content,
+                    )
+                else:
+                    return LLMStepResult(
+                        tool_calls=[
+                            LLMToolCall(
+                                tool_name="request_human_review",
+                                arguments={
+                                    "invoice_id": invoice.id,
+                                    "reason": "Verification completed successfully",
+                                    "recommended_action": "APPROVE",
+                                },
+                            )
+                        ],
+                        model_name=self.model_name,
+                        provider_name=self.provider_name,
+                    )
+
+        provider = MultiToolProvider()
+        orchestrator = DynamicAPOrchestrator(provider=provider)
+        report = orchestrator.analyze_invoice(invoice_id=invoice.id, db=db)
+
+        # In turn 2, captured_turns[1] must have:
+        # 0: user text prompt
+        # 1: model content with 2 function calls and their signatures
+        # 2: user content with 2 function responses
+        assert len(captured_turns) >= 2
+        turn2_messages = captured_turns[1]
+        assert len(turn2_messages) == 3
+
+        model_msg = turn2_messages[1]
+        assert len(model_msg.parts) == 2
+        assert model_msg.parts[0].thought_signature == sig1
+        assert model_msg.parts[1].thought_signature == sig2
+
+        user_resp_msg = turn2_messages[2]
+        assert user_resp_msg["role"] == "user"
+        assert len(user_resp_msg["parts"]) == 2
+        assert user_resp_msg["parts"][0]["function_response"]["name"] == "get_invoice_details"
+        assert user_resp_msg["parts"][1]["function_response"]["name"] == "verify_vendor_status"
+
+        # Verify both tool executions were logged
+        assert len(report.tool_executions) == 3
+        assert report.tool_executions[0].tool_name == "get_invoice_details"
+        assert report.tool_executions[1].tool_name == "verify_vendor_status"
+        assert report.tool_executions[2].tool_name == "request_human_review"
+    finally:
+        db.close()
+
+
+def test_maintains_existing_fallback_when_gemini_fails():
+    """Regression test: verify fallback behavior is maintained if Gemini fails
+    with any error (including 400 ClientError or Network Error).
+    """
+    db = SessionLocal()
+    try:
+        invoice = db.query(Invoice).first()
+        if not invoice:
+            pytest.skip("No invoice in test database")
+
+        class CrashingProvider(BaseLLMProvider):
+            def __init__(self):
+                super().__init__(api_key="dummy", model_name="gemini-3.5-flash-lite")
+
+            @property
+            def provider_name(self) -> str:
+                return "gemini"
+
+            def generate_step(self, system_instruction, messages, tools=None) -> LLMStepResult:
+                raise RuntimeError("400 INVALID_ARGUMENT simulated Gemini failure")
+
+        provider = CrashingProvider()
+        orchestrator = DynamicAPOrchestrator(provider=provider)
+        report = orchestrator.analyze_invoice(invoice_id=invoice.id, db=db)
+
+        assert report.orchestration_mode == "FALLBACK_RULE_BASED"
+        assert report.model_used == "rule-based-deterministic"
+        assert report.orchestrator_status == "COMPLETED"
+        assert report.recommendation in ["APPROVE", "REVIEW", "REJECT"]
+        assert report.understanding is not None
+        assert report.vendor_verification is not None
+        assert report.matching is not None
+        assert report.fraud_risk is not None
+    finally:
+        db.close()

@@ -186,6 +186,8 @@ async def upload_invoice(
         "missing_fields": extracted["missing_fields"],
         "field_confidences": extracted["field_confidences"],
         "duplicate_warning": duplicate_warning,
+        "purchase_order_number": extracted.get("purchase_order_number"),
+        "grn_number": extracted.get("grn_number"),
         "reconciliation_status": extracted.get("reconciliation_status"),
         "reconciliation_message": extracted.get("reconciliation_message"),
         "gst_breakdown": {
@@ -206,12 +208,32 @@ async def upload_invoice(
         },
     }
 
+    # Derive vendor_id from tax identifier if not already linked
+    resolved_vendor_id = extracted.get("vendor_id")
+    if not resolved_vendor_id and extracted.get("tax_identifier"):
+        clean_tax_id = extracted["tax_identifier"].strip().upper()
+        v_match = db.query(Vendor).filter(Vendor.tax_identifier.ilike(clean_tax_id)).first()
+        if v_match:
+            resolved_vendor_id = v_match.id
+
+    resolved_po_id = extracted.get("purchase_order_id")
+    if not resolved_po_id and extracted.get("purchase_order_number"):
+        po_match = db.query(PurchaseOrder).filter(
+            PurchaseOrder.po_number.ilike(extracted["purchase_order_number"].strip())
+        ).first()
+        if po_match:
+            resolved_po_id = po_match.id
+            if not resolved_vendor_id and po_match.vendor_id:
+                resolved_vendor_id = po_match.vendor_id
+            if not assigned_dept_id and po_match.department_id:
+                assigned_dept_id = po_match.department_id
+
     # 7. Create Invoice database record
     new_invoice = Invoice(
         invoice_number=extracted_inv_num,
         normalized_invoice_number=normalized_inv_num,
-        vendor_id=extracted.get("vendor_id"),
-        purchase_order_id=extracted.get("purchase_order_id"),
+        vendor_id=resolved_vendor_id,
+        purchase_order_id=resolved_po_id,
         department_id=assigned_dept_id,
         invoice_date=extracted.get("invoice_date"),
         due_date=extracted.get("due_date"),
@@ -236,6 +258,20 @@ async def upload_invoice(
         payment_status="UNPAID",
     )
     db.add(new_invoice)
+    db.flush()
+
+    # Create itemized invoice line records if extracted from document
+    for line_data in extracted.get("line_items", []):
+        inv_line = InvoiceLine(
+            invoice_id=new_invoice.id,
+            line_number=line_data["line_number"],
+            description=line_data["description"],
+            quantity=line_data["quantity"],
+            unit_price=line_data["unit_price"],
+            tax_rate=line_data.get("tax_rate", Decimal("0.00")),
+            line_total=line_data["line_total"],
+        )
+        db.add(inv_line)
     db.flush()
 
     duration = Decimal(str(round(time.time() - start_time, 4)))

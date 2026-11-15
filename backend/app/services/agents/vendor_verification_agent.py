@@ -42,6 +42,9 @@ class VendorVerificationAgent:
             clean_supp = extracted_supp_name.strip()
             vendor = db.query(Vendor).filter(Vendor.legal_name.ilike(f"%{clean_supp}%")).first()
 
+        if vendor and not invoice.vendor_id:
+            invoice.vendor_id = vendor.id
+
         # 2. Case: Unknown / Unregistered Vendor
         if not vendor:
             supp_label = extracted_supp_name or invoice.tax_identifier or "Unknown Supplier"
